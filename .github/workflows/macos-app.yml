@@ -1,19 +1,19 @@
 name: macOS app
 
-# Builds openVJ.app with scripts/bundle-macos.sh. Runs when packaging changes, on demand
-# (Actions → macOS app → Run workflow), and on version tags, where it attaches the zip to a
-# draft GitHub release.
+# Builds openVJ.app with scripts/bundle-macos.sh. Runs on every push to main and on demand
+# (Actions → macOS app → Run workflow), which put the zip on the run page and on a draft "dev
+# build" release; on version tags, where it attaches the zip to a draft GitHub release; and on
+# PRs that change packaging.
 on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths: &packaging
+  pull_request:
+    paths:
       - scripts/bundle-macos.sh
       - scripts/build-ffmpeg-macos.sh
       - packaging/macos/**
       - .github/workflows/macos-app.yml
-  pull_request:
-    paths: *packaging
   workflow_dispatch:
 
 concurrency:
@@ -103,12 +103,19 @@ jobs:
           bytes="$("$macos/ffmpeg" -nostdin -loglevel error -f lavfi -i testsrc2=size=320x240:rate=30 \
             -frames:v 1 -an -vf scale=160:120:flags=bilinear -f rawvideo -pix_fmt rgba - | wc -c)"
           test "$bytes" -eq $((160 * 120 * 4))
-      # Manual runs put the zip on a draft "dev" release (visible only to people with push
-      # access). Releases don't count against the private repo's small artifact storage.
-      # Each branch keeps one dev draft, tagged dev-<branch>--<sha>: a new run replaces that
-      # branch's previous draft and leaves other branches' test builds alone.
+      # Main and manual builds can be downloaded from the run page.
+      - name: Upload the app
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openVJ-macOS-${{ github.ref_name }}-${{ github.sha }}
+          path: target/macos/*.zip
+          retention-days: 30
+      # Main and manual builds also go on a draft "dev" release (visible only to people with
+      # push access). Each branch keeps one dev draft, tagged dev-<branch>--<sha>: a new run
+      # replaces that branch's previous draft and leaves other branches' test builds alone.
       - name: Draft a dev build release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
