@@ -94,7 +94,7 @@ Environment variables:
 
 `scripts/bundle-macos.sh` builds `target/macos/openVJ.app` and a zip of it, signed ad hoc. Start it with `open target/macos/openVJ.app` or from Finder. The app asks for camera and microphone access in its own name, so use it rather than `cargo run` when you play cameras or audio input. Run `scripts/build-ffmpeg-macos.sh` first (once, ~10 minutes) to put FFmpeg inside the app; the downloadable builds always include it, so they play video without Homebrew.
 
-The [macOS app workflow](.github/workflows/macos-app.yml) builds the same zip: Actions → macOS app → Run workflow puts it on a draft "dev build" release, and a `v*` tag attaches it to a draft release for that version. Once the Developer ID secrets are set ([packaging/macos/README.md](packaging/macos/README.md)), those builds are signed and notarized. Until then they're signed ad hoc, and the first time you open a downloaded copy macOS refuses: go to System Settings → Privacy & Security and click **Open Anyway**.
+The [macOS app workflow](.github/workflows/macos-app.yml) builds the same zip for every push to main (and on demand from Actions → macOS app → Run workflow). Download it from that run's Artifacts or from the draft "dev build" release. A `v*` tag attaches it to a draft release for that version. Once the Developer ID secrets are set ([packaging/macos/README.md](packaging/macos/README.md)), those builds are signed and notarized. Until then they're signed ad hoc, and the first time you open a downloaded copy macOS refuses: go to System Settings → Privacy & Security and click **Open Anyway**.
 
 ## Architecture
 
