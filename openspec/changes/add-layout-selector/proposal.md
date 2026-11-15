@@ -9,7 +9,7 @@ openVJ has one screen today, built for mixing a full composition the way Resolum
 - A **layout selector** at the left of the top bar, styled like openDJ's: a button with the current layout's icon and name, opening a menu titled LAYOUT with one row per layout (icon + name) and a check mark on the current one. Cyan accent instead of openDJ's lilac. openDJ's pencil and Dark/Light/Auto row are left out (openVJ has one theme).
 - Three layouts:
   - **Mixer**: today's screen, unchanged.
-  - **Player**: a very simple automix player. A playlist of visuals plays one after another by itself, reacting to the audio input, with a big output preview and a few transport controls. Exact contents are open questions below.
+  - **Player**: a very simple automix player, like openDJ's Automix. It plays a **playlist** of **presets** one after another by itself, with a big output preview. A preset is a generator (or a clip) with its parameter values, audio mappings and effects, so the same generator can appear several times with different looks, as in Synesthesia. Each preset plays for a set number of bars (or seconds), then the next one comes in with a transition set by LENGTH (time or bars, as in openDJ) and STYLE (crossfade, cut, …). Shuffle and Repeat as in openDJ. Playlists save as their own files, so they can be prepared before a gig and loaded there.
   - **Synthesis**: a screen for one visual at a time: a big preview next to large parameter bars for the selected generator or layer and its effects, made to be played live (by mouse and MIDI). Exact contents are open questions below.
 - Switching layout changes only what the window shows. Output, Syphon, mapping, audio, tempo and MIDI keep running, and nothing in the composition changes.
 - The app remembers the last layout and opens in it.
@@ -27,11 +27,13 @@ Out of scope: user-defined or editable layouts, a light theme, and changes to th
 
 ## Impact
 
-UI only, plus a small saved preference. The Player's playlist may need a new saved model (see Open questions); if so it gets its own design.md before code.
+The selector and Mixer are UI only, plus a small saved preference. The Player adds presets, a playlist file and its own playback alongside the composition; see design.md.
 
 ## Touches
 
 - crates/openvj-app: `ui/main.slint` (top bar `Toolbar`, `MainWindow` body split into one component per layout), new `ui/layouts.slint` (selector, Player, Synthesis), `ui/controls.slint` (menu row, layout icons), `ui/theme.slint` (tokens only if needed), `src/main.rs` and `src/app.rs` (layout property, shortcuts, saving the preference)
+- crates/openvj-core: new `playlist.rs` (presets and the playlist file); no change to `composition.rs` beyond reusing its clip, parameter and effect types
+- crates/openvj-render: playing the Player's two layers and the transition, without touching the composition's layers
 - Specs: new `layouts`
 - Shared hot spots: `ui/main.slint`, `ui/theme.slint`, `src/app.rs`
 
@@ -44,10 +46,11 @@ UI only, plus a small saved preference. The Player's playlist may need a new sav
 
 For the maintainer:
 
-1. **Player, what is in the playlist?** ISF generators (incl. Ghost Arcade), video files, whole decks/columns of the current composition, or saved compositions? Suggestion: generators and video files from the browser, dragged in.
-2. **Player, when does it move on?** Every N bars (suggest 16, following BPM/Link), on a timer in seconds, or on musical changes (drops, breakdowns, like Resolume's Autopilot)? And how: crossfade of a set length in beats, or cut?
-3. **Player, audio-reactive how?** Rely on each visual's own audio mappings, or have the Player add an overall Reactivity and some automatic modulation so any visual moves with the music?
-4. **Player, extras?** Shuffle, loop playlist, effects on the whole output, and is the playlist saved with the composition or on its own as a file?
-5. **Synthesis, scope.** One generator or layer at a time (picked from a list), or all layers visible at once like a synth's patch panel?
-6. **Synthesis, "play".** What does playing the visuals mean to you: big parameter bars to ride with the mouse and MIDI, XY pads, trigger/bang buttons, a randomise button, snapshots of parameter values to jump between, or all of these?
-7. **Synthesis, clip grid.** Hidden entirely, or a small strip to pick the next clip?
+Answered 2026-11-15: playlists hold presets (generator + settings + effects, clips maybe), several presets of the same generator allowed; timing and transitions use openDJ's LENGTH and STYLE; playlists save as their own files. Reactivity: Seba unsure, so the default in design.md applies (each preset keeps its own audio mappings; the existing Reactivity control scales them all).
+
+Still open:
+
+1. **Synthesis, scope.** One generator or layer at a time (picked from a list), or all layers visible at once like a synth's patch panel?
+2. **Synthesis, "play".** What does playing the visuals mean: big parameter bars to ride with the mouse and MIDI, XY pads, trigger/bang buttons, a randomise button, snapshots of parameter values to jump between, or all of these?
+3. **Synthesis, clip grid.** Hidden entirely, or a small strip to pick the next clip?
+4. **Synthesis and presets.** Should Synthesis be where presets are made ("Save preset" / "Add to playlist"), so a look shaped there can go straight into a Player playlist?
