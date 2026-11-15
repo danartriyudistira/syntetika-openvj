@@ -51,6 +51,6 @@ Answered 2026-11-15: playlists hold presets (generator + settings + effects, cli
 
 Synthesis answered 2026-11-15: like a synthesizer, common sections and maybe custom ones per generator; macros that control generator and FX parameters, animated by LFOs or played with mouse and MIDI; layout of the rest open to ideas (proposed: zoomed-in view of one layer, clip grid hidden). Q8 unanswered, default: Synthesis is where presets are saved and added to a playlist.
 
-Still open:
+Knobs decided 2026-11-15: knobs in Synthesis only (macros and section parameters); Resolume-style bars stay everywhere else. This narrows the standing "no knobs" decision; openspec/config.yaml and the visual-style spec are updated in this change.
 
-1. **Knobs in Synthesis.** Seba asked for standardized, creative knobs, which reopens the standing decision "parameters stay Resolume-style bars (no knobs)". Proposed: knobs only in Synthesis (macros and section parameters), bars everywhere else.
+Still open: none.

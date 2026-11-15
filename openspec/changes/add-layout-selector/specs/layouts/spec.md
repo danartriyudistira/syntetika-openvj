@@ -74,6 +74,8 @@ Each preset SHALL react to the music through its own audio and tempo mappings, a
 ### Requirement: Synthesis layout
 The Synthesis layout SHALL be a zoomed-in view of one layer, laid out like a hardware synthesizer: a strip of layer thumbnails to pick the layer, a large preview, a row of 8 macros, and sections that are the same for every generator: SOURCE (the generator's parameters), one section per effect, and OUTPUT (opacity, blend mode, transform). The clip grid SHALL be hidden.
 
+Macros and section parameters in Synthesis SHALL be standardized knobs; elsewhere parameters stay bars.
+
 #### Scenario: Focus a layer
 - **WHEN** the VJ clicks the second layer's thumbnail in Synthesis
 - **THEN** the panel shows that layer's generator, effects and macros
