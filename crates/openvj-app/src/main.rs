@@ -83,6 +83,7 @@ fn main() -> Result<()> {
 
     // ISF effects from ~/Documents/openVJ/Effects and the standard ISF folders, reloaded on change.
     openvj_core::effect_folders::watch(openvj_core::effect_folders::default_dirs(), openvj_render::check_effect);
+    openvj_core::milkdrop::watch(openvj_core::milkdrop::default_dirs());
 
     // `openvj [composition.json | composition.avc | media folder]`
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
@@ -154,6 +155,9 @@ fn main() -> Result<()> {
     on!(on_param_mod_rate, |a, s: i32, o: i32, i: i32, r: i32| a.param_mod_rate(s, o, i as usize, r.max(0) as usize));
     on!(on_effect_add, |a, s: i32, k: i32| a.effect_add(s, k.max(0) as usize));
     on!(on_open_effects_folder, |a| a.open_effects_folder());
+    on!(on_milk_clicked, |a, i: i32| a.milk_clicked(i.max(0) as usize));
+    on!(on_milk_double_clicked, |a, i: i32| a.milk_double_clicked(i.max(0) as usize));
+    on!(on_open_milk_folder, |a| a.open_milk_folder());
     on!(on_effect_toggle, |a, s: i32, i: i32| a.effect_toggle(s, i.max(0) as usize));
     on!(on_effect_remove, |a, s: i32, i: i32| a.effect_remove(s, i.max(0) as usize));
     on!(on_effect_move, |a, s: i32, i: i32, d: i32| a.effect_move(s, i.max(0) as usize, d));

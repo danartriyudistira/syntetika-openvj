@@ -13,11 +13,11 @@ openVJ SHALL play MilkDrop `.milk` presets as generator clips. A MilkDrop clip S
 - **THEN** the clip shows black and the clip panel shows the error
 
 ### Requirement: MilkDrop folder
-openVJ SHALL load MilkDrop presets from `~/Documents/openVJ/MilkDrop` (subfolders included) and `OPENVJ_MILKDROP_DIR`, rescanned about once a second, and list them in the Sources tab after the ISF generators with their subfolder. Clips SHALL save the preset by its path inside the MilkDrop folder, or the full path for a file elsewhere.
+openVJ SHALL load MilkDrop presets from `~/Documents/openVJ/MilkDrop` (subfolders included) and `OPENVJ_MILKDROP_DIR`, rescanned about once a second, and list them in the browser's MilkDrop tab with their subfolder and an Open folder button. Clips SHALL save the preset by its path inside the MilkDrop folder, or the full path for a file elsewhere.
 
 #### Scenario: Place a preset
 - **GIVEN** a `.milk` file in `~/Documents/openVJ/MilkDrop/Geiss`
-- **WHEN** the VJ double-clicks it in the Sources tab
+- **WHEN** the VJ double-clicks it in the MilkDrop tab
 - **THEN** a clip with that preset is placed in the selected slot and plays when launched
 
 #### Scenario: Missing preset

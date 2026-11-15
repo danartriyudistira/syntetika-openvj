@@ -738,7 +738,8 @@ impl Engine {
         let (now, frame_no, rate) = (self.now, self.frame_no, self.pcm_rate);
         // A clip that just left the screen keeps its full-size engine for a moment, so its
         // thumbnail doesn't restart the preset.
-        let full = full || self.milk.get(&clip.id).is_some_and(|m| m.full && now - m.last_full < milkdrop::FULL_HOLD_SECS);
+        let full =
+            full || self.milk.get(&clip.id).is_some_and(|m| m.full && now - m.last_full < milkdrop::FULL_HOLD_SECS);
         if self.milk.get(&clip.id).is_none_or(|m| !m.fits(size, full, rate)) {
             match MilkClip::new(&self.device, &self.queue, size, full, rate) {
                 Ok(m) => {
@@ -2135,7 +2136,8 @@ mod tests {
 
         // A 60 Hz tone coming in turns the border's red up (MilkDrop's bass is relative to
         // the recent average, so the jump shows in the first frames).
-        let tone: Vec<f32> = (0..800).map(|i| (i as f32 * 60.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9).collect();
+        let tone: Vec<f32> =
+            (0..800).map(|i| (i as f32 * 60.0 / 48_000.0 * std::f32::consts::TAU).sin() * 0.9).collect();
         let mut loud = [0.0; 3];
         for f in 11..=15 {
             let t = f as f64 / 60.0;
@@ -2154,6 +2156,99 @@ mod tests {
         comp.clip_mut(0, 0).unwrap().source = ClipSource::Milkdrop { preset: "Nowhere/Gone.milk".into() };
         e.render(&comp, 1.2, &inputs(1.2), None);
         assert_eq!(mean(&e.read_target(e.output())), [0.0; 3]);
+    }
+
+    /// Plays a sample of a MilkDrop pack and reports presets that fail to load or panic,
+    /// and the CPU time per frame. `OPENVJ_MILK_BATCH=<folder> cargo test --release -p
+    /// openvj-render milkdrop_batch -- --ignored --nocapture` (`OPENVJ_MILK_EVERY` picks every Nth).
+    #[test]
+    #[ignore]
+    fn milkdrop_batch() {
+        let Some(dir) = std::env::var_os("OPENVJ_MILK_BATCH") else { return };
+        let every: usize = std::env::var("OPENVJ_MILK_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+        let dir = std::path::PathBuf::from(dir);
+        openvj_core::milkdrop::set_milk_library(openvj_core::milkdrop::MilkLibrary::new(
+            vec![dir.clone()],
+            openvj_core::milkdrop::scan(std::slice::from_ref(&dir)),
+        ));
+        let lib = openvj_core::milkdrop::milk_library();
+        let (w, h) = (640, 360);
+        let mut e = engine(w, h).expect("GPU");
+        let music: Vec<f32> = (0..800)
+            .map(|i| {
+                let t = i as f32 / 48_000.0;
+                ((t * 55.0 * std::f32::consts::TAU).sin() * 0.6 + (t * 1760.0 * std::f32::consts::TAU).sin() * 0.2)
+                    * if i % 400 < 120 { 1.0 } else { 0.3 }
+            })
+            .collect();
+        // Baseline: a built-in generator through the same frame, to tell MilkDrop's cost from
+        // the GPU (on a software renderer the GPU work lands on the CPU too).
+        let mut base = Composition::new(w, h, 1, 1);
+        base.set_clip(0, 0, ClipSource::Generator { kind: openvj_core::GeneratorKind::ALL[0] }).unwrap();
+        base.trigger(0, 0, 0.0);
+        let start = std::time::Instant::now();
+        for f in 1..=30 {
+            e.render(&base, f as f64 / 60.0, &inputs(0.0), None);
+        }
+        let _ = e.read_target(e.output());
+        eprintln!("baseline frame: {:.2} ms", start.elapsed().as_secs_f64() * 1000.0 / 30.0);
+        let (mut tried, mut failed, mut panicked, mut black) = (0, Vec::new(), Vec::new(), 0);
+        let mut times = Vec::new();
+        for p in lib.presets().iter().step_by(every.max(1)) {
+            tried += 1;
+            let mut comp = Composition::new(w, h, 1, 1);
+            let id = comp.set_clip(0, 0, ClipSource::Milkdrop { preset: p.id.clone() }).unwrap();
+            comp.trigger(0, 0, 0.0);
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut spent = std::time::Duration::ZERO;
+                for f in 1..=30 {
+                    let t = f as f64 / 60.0;
+                    e.set_audio_samples(&music, 48_000, 1.0);
+                    let start = std::time::Instant::now();
+                    e.render(&comp, t, &inputs(t), None);
+                    if f > 5 {
+                        spent += start.elapsed();
+                    }
+                }
+                (spent / 25, mean(&e.read_target(e.output())))
+            }));
+            match run {
+                Ok((dt, m)) => {
+                    if let Some(err) = e.milk_error(id) {
+                        failed.push(format!("{}: {err}", p.id));
+                    } else {
+                        times.push((dt, p.id.clone()));
+                        if m.iter().sum::<f32>() < 1.0 {
+                            black += 1;
+                        }
+                    }
+                }
+                Err(_) => {
+                    panicked.push(p.id.clone());
+                    e = engine(w, h).expect("GPU");
+                }
+            }
+        }
+        times.sort();
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let median = times.get(times.len() / 2).map_or(0.0, |t| ms(t.0));
+        let p95 = times.get(times.len() * 95 / 100).map_or(0.0, |t| ms(t.0));
+        eprintln!(
+            "tried {tried}, loaded {}, failed {}, panicked {}, black after 30 frames {black}",
+            times.len(),
+            failed.len(),
+            panicked.len()
+        );
+        eprintln!("CPU per frame at {w}x{h}: median {median:.2} ms, p95 {p95:.2} ms");
+        for (d, id) in times.iter().rev().take(5) {
+            eprintln!("  slow: {:.2} ms {id}", ms(*d));
+        }
+        for f in &failed {
+            eprintln!("  failed: {f}");
+        }
+        for p in &panicked {
+            eprintln!("  panicked: {p}");
+        }
     }
 
     #[test]

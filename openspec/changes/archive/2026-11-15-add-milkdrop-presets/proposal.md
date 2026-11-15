@@ -7,11 +7,11 @@ MilkDrop presets are the largest library of audio-reactive visuals there is: tho
 ## What Changes
 
 - `.milk` files play as generator clips. openVJ loads them from `~/Documents/openVJ/MilkDrop` (subfolders included, and `OPENVJ_MILKDROP_DIR`), rescanning about once a second like the effects folder.
-- The Sources tab lists them after the ISF generators, as "MilkDrop · <subfolder>". Dropping a `.milk` file from the Files tab onto the grid also works.
+- The browser gets a MilkDrop tab: a scrolling list of every preset with its subfolder, and an Open folder button (a pack has ~10,000 presets, too many for the Sources tab's cards). A `.milk` file from the Files tab also places as a MilkDrop clip.
 - A MilkDrop clip reacts to the audio input (raw samples, so presets see MilkDrop's own bass/mid/treble), follows the clip's speed, and has one parameter, Sensitivity, with the usual modulation. The composition's Reactivity scales it too.
 - Clips save the preset by its path inside the MilkDrop folder (or the full path for a file elsewhere). A missing preset shows as missing and plays once the file is back, like a missing ISF generator.
 - Each MilkDrop clip runs one lactea engine at the composition size, shared by its layer, preview and thumbnail.
-- No presets are bundled: community packs have no clear licence. The Sources tab hint links to the projectM preset packs.
+- No presets are bundled: community packs have no clear licence. README points to the projectM preset packs.
 
 Out of scope: MilkDrop's own preset-to-preset blends and the Player playlist (after add-layout-selector lands), user sprites and custom preset textures beyond what lactea loads from the preset's own folder, editing presets.
 
@@ -40,4 +40,4 @@ Out of scope: MilkDrop's own preset-to-preset blends and the Player playlist (af
 
 - Is `~/Documents/openVJ/MilkDrop` the right folder, or should `.milk` files go in the Effects folder too?
 - Bundling: none for now (licences are unclear). Should openVJ offer a one-click download of the projectM "cream of the crop" pack into the folder later?
-- With ~10,000 presets the Sources tab gets long. Is it OK for now, with search and favourites as a follow-up?
+- A ~10,000 preset list needs search and favourites. Follow-up?

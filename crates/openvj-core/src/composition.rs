@@ -166,7 +166,8 @@ impl ClipSource {
         }
     }
 
-    fn default_name(&self) -> String {
+    /// The name a new clip with this source gets.
+    pub fn default_name(&self) -> String {
         match self {
             ClipSource::Generator { kind } => kind.name().to_owned(),
             ClipSource::Isf { generator } => generator.name(),
