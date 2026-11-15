@@ -23,3 +23,11 @@ Seba was unsure whether the Player should add its own audio reactivity. Default:
 ## Timing
 
 Durations count bars from the shared tempo (BPM or Link), so changes land on bar lines. LENGTH and STYLE copy openDJ's Automix pickers: LENGTH has TIME (0 s cut, 2, 4, 8 s) and BARS (1, 2, 4) groups; STYLE starts with Crossfade, Cut and Fade through black.
+
+## Synthesis macros
+
+**Choice:** 8 macros per layer, like Ableton racks and Synesthesia's controls. A macro is a value 0..1 with a list of targets; each target is one generator or effect parameter with a from/to range. The macro sets its targets directly, so a parameter targeted by a macro shows the macro's colour and can't also take its own driver (keeps the one-driver-per-parameter rule). The macro itself takes one driver, using add-parameter-animation's model.
+
+**Why 8:** fits one row and matches most MIDI controllers' knob banks (Circuit Tracks has 8 macro knobs).
+
+**Sections:** SOURCE lists the generator's ISF inputs in file order; FX one section per effect; OUTPUT opacity, blend and transform. A generator can later ship a sidecar layout (which inputs go where, section names) for a custom panel; until then every generator uses the standard one.

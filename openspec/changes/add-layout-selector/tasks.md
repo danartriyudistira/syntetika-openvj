@@ -21,8 +21,10 @@
 
 ## 4. Synthesis
 
-- [ ] 4.1 Synthesis screen: preview, layer/generator picker, large parameter bars
-- [ ] 4.2 Live controls agreed with the maintainer (MIDI, randomise, snapshots…)
+- [ ] 4.1 Macro model in openvj-core (8 per layer, targets with ranges), saved in compositions and presets, with tests
+- [ ] 4.2 Synthesis screen: layer strip, preview, macro row, SOURCE / FX / OUTPUT sections
+- [ ] 4.3 Assigning macro targets; MIDI learn and drivers on macros
+- [ ] 4.4 Save preset and Add to playlist
 
 ## 5. Wrap up
 
