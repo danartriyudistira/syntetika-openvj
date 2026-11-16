@@ -14,9 +14,9 @@ use openvj_audio::{Analyzer, AudioInput};
 use openvj_core::milkdrop::milk_library;
 use openvj_core::{
     AudioSignal, Autopilot, BAND_COUNT, BeatClock, BlendMode, Clip, ClipId, ClipSource, ClockMessage, Composition,
-    CrossfadeCurve, CrossfadeSide, DEFAULT_CLIP_SECS, Effect, MAX_REACTIVITY, MOD_RATES, MidiClock, MidiEffect,
-    MidiMessage, ModInputs, ModSource, Modulation, Param, PlayMode, Playing, RouterInput, SYNC_BEATS, Span, TapTempo,
-    TransitionStyle, TriggerStyle, apply_midi, library, move_effect,
+    CrossfadeCurve, CrossfadeSide, DEFAULT_CLIP_SECS, Effect, MACRO_COUNT, MAX_REACTIVITY, MOD_RATES, MidiClock,
+    MidiEffect, MidiMessage, ModInputs, ModSource, Modulation, Param, ParamRef, PlayMode, Playing, RouterInput,
+    SYNC_BEATS, Span, TapTempo, TransitionStyle, TriggerStyle, apply_midi, library, move_effect,
 };
 use openvj_media::dxv::{self, DxvDecoder, DxvFormat, DxvFrame};
 use openvj_media::hap::{self, HapDecoder, HapFormat, HapFrame};
@@ -33,6 +33,7 @@ use crate::syphon_out::{self, SyphonOutput};
 use crate::{
     AudioLevels, BrowserItem, CellData, ColumnData, DeckData, Disc, DiscParam, EffectData, LayerData, Lib, LibChip,
     LibSideRow, LibTile, MainWindow, MappingWindow, ModNames, OutputWindow, ParamData, PresetRow, Shadertoy,
+    SynthLayer,
 };
 
 // The output mapping window's side of the app.
@@ -57,6 +58,8 @@ mod scope {
     /// The fixed Transforms; the owner is ignored.
     pub const LAYER_TF: i32 = 8;
     pub const CLIP_TF: i32 = 9;
+    /// The selected clip's macros (Synthesis layout); the index is the macro.
+    pub const CLIP_MACRO: i32 = 10;
 
     /// Scopes whose parameters belong to an effect (a chain entry or a Transform).
     pub fn is_effect(scope: i32) -> bool {
@@ -275,6 +278,9 @@ pub struct App {
     audio_params: Rc<VecModel<ParamData>>,
     layer_params: Rc<VecModel<ParamData>>,
     clip_params: Rc<VecModel<ParamData>>,
+    /// The selected clip's macros, for the Synthesis layout.
+    macro_params: Rc<VecModel<ParamData>>,
+    macro_counts: Rc<VecModel<i32>>,
     group_params: Rc<VecModel<ParamData>>,
     comp_fx: EffectModels,
     layer_fx: EffectModels,
@@ -390,6 +396,8 @@ impl App {
             audio_params: Rc::new(VecModel::default()),
             layer_params: Rc::new(VecModel::default()),
             clip_params: Rc::new(VecModel::default()),
+            macro_params: Rc::new(VecModel::default()),
+            macro_counts: Rc::new(VecModel::default()),
             group_params: Rc::new(VecModel::default()),
             comp_fx: EffectModels::default(),
             layer_fx: EffectModels::default(),
@@ -441,6 +449,8 @@ impl App {
         ui.set_audio_params(ModelRc::from(self.audio_params.clone()));
         ui.set_layer_params(ModelRc::from(self.layer_params.clone()));
         ui.set_clip_params(ModelRc::from(self.clip_params.clone()));
+        ui.set_macro_params(ModelRc::from(self.macro_params.clone()));
+        ui.set_macro_counts(ModelRc::from(self.macro_counts.clone()));
         ui.set_comp_effects(ModelRc::from(self.comp_fx.effects.clone()));
         ui.set_layer_effects(ModelRc::from(self.layer_fx.effects.clone()));
         ui.set_group_params(ModelRc::from(self.group_params.clone()));
@@ -866,10 +876,14 @@ impl App {
         self.update_live(now);
         self.update_midi(now);
         self.inputs = self.update_audio(beat, dt);
+        let inputs = self.inputs;
+        for clip in self.comp.layers.iter_mut().flat_map(|l| l.clips.iter_mut().flatten().chain(l.held.iter_mut())) {
+            clip.apply_macros(&inputs);
+        }
         let preview = self.selected.and_then(|(l, c)| self.comp.clip(l, c)).map(|c| c.id);
         self.syphon_out.before_render(&mut self.engine);
         // While Automix plays, the Player's own composition goes to the output instead.
-        match self.player.frame(&self.comp, now, beat, self.comp.bpm) {
+        match self.player.frame(&self.comp, now, beat, self.comp.bpm, &self.inputs) {
             Some(shown) => self.engine.render(shown, now, &self.inputs, None),
             None => self.engine.render(&self.comp, now, &self.inputs, preview),
         }
@@ -954,6 +968,7 @@ impl App {
         if self.grid_dirty {
             self.grid_dirty = false;
             self.sync_grid(ui);
+            self.sync_synth_layers(ui);
         } else {
             self.sync_live_opacity();
         }
@@ -1139,7 +1154,11 @@ impl App {
 
         let mut rows = Vec::new();
         let clip = self.selected.and_then(|(l, c)| comp.clip(l, c));
-        self.clip_fx.update(clip.map_or(&[][..], |c| &c.effects), &inputs);
+        let mark = |e: usize, i: usize| {
+            clip.and_then(|c| clip_param_ref(c, scope::CLIP_FX, e as i32, i).and_then(|r| c.macro_of(&r)))
+                .map_or(-1, |m| m as i32)
+        };
+        self.clip_fx.update_marked(clip.map_or(&[][..], |c| &c.effects), &inputs, &mark);
         self.clip_tf.update(clip.map_or(&[][..], |c| std::slice::from_ref(&c.transform)), &inputs);
         if let Some(clip) = clip {
             if let ClipSource::Generator { kind } = clip.source {
@@ -1188,7 +1207,29 @@ impl App {
         for row in rows.iter_mut().filter(|r| r.modulatable) {
             row.restartable = true;
         }
+        if let Some(clip) = clip {
+            for row in &mut rows {
+                row.macro_index = clip_param_ref(clip, scope::CLIP, 0, row.index as usize)
+                    .and_then(|r| clip.macro_of(&r))
+                    .map_or(-1, |m| m as i32);
+            }
+        }
         update_model(&self.clip_params, rows);
+        let macros: Vec<ParamData> = match clip {
+            Some(clip) => (0..MACRO_COUNT)
+                .map(|i| {
+                    let m = clip.macros.get(i).cloned().unwrap_or_default();
+                    let name = if m.name.is_empty() { format!("Macro {}", i + 1) } else { m.name.clone() };
+                    param_row(i, &name, &m.value, 0.0, &inputs, pct)
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        update_model(&self.macro_params, macros);
+        let counts: Vec<i32> = (0..MACRO_COUNT)
+            .map(|i| clip.and_then(|c| c.macros.get(i)).map_or(0, |m| m.targets.len() as i32))
+            .collect();
+        update_model(&self.macro_counts, counts);
     }
 
     /// Modulated layer opacity moves every frame. Only those fields are pushed, so the
@@ -2222,6 +2263,7 @@ impl App {
                 let l = self.layer_index(owner)?;
                 Some(&mut self.comp.layers[l].opacity_mod)
             }
+            (scope::CLIP_MACRO, i) => self.selected_clip_mut()?.macro_mut(i).map(|m| &mut m.value.modulation),
             (scope::CLIP, i) if i >= ISF_PARAM_BASE => {
                 self.isf_param_mut(i - ISF_PARAM_BASE).map(|p| &mut p.modulation)
             }
@@ -2265,6 +2307,11 @@ impl App {
             scope::CLIP if index >= ISF_PARAM_BASE => {
                 if let Some(p) = self.isf_param_mut(index - ISF_PARAM_BASE) {
                     p.value = v;
+                }
+            }
+            scope::CLIP_MACRO => {
+                if let Some(m) = self.selected_clip_mut().and_then(|c| c.macro_mut(index)) {
+                    m.value.value = v;
                 }
             }
             scope::CLIP => {
@@ -3166,6 +3213,7 @@ fn param_row(
         mod_source: m.source.index() as i32,
         mod_amount: m.amount,
         mod_rate: m.rate_index() as i32,
+        macro_index: -1,
         mod_phase: (m.phase * 4.0).round() as i32 % 4,
         mod_restart: m.restart,
         restartable: false,
@@ -3188,6 +3236,7 @@ fn fixed_row(index: usize, name: &str, value: f32, reset: f32, display: String) 
         reset,
         display: display.into(),
         modulatable: false,
+        macro_index: -1,
         ..Default::default()
     }
 }
@@ -3204,9 +3253,14 @@ struct EffectModels {
 
 impl EffectModels {
     fn update(&mut self, chain: &[Effect], inputs: &ModInputs) {
+        self.update_marked(chain, inputs, &|_, _| -1);
+    }
+
+    /// `mark(effect, index)` is the macro moving that parameter, or -1.
+    fn update_marked(&mut self, chain: &[Effect], inputs: &ModInputs, mark: &dyn Fn(usize, usize) -> i32) {
         self.params.resize_with(chain.len(), || Rc::new(VecModel::default()));
         let mut rows = Vec::with_capacity(chain.len());
-        for (fx, model) in chain.iter().zip(&self.params) {
+        for (e, (fx, model)) in chain.iter().zip(&self.params).enumerate() {
             let mut params: Vec<ParamData> = match fx.ty() {
                 Some(ty) => ty
                     .channels
@@ -3221,6 +3275,9 @@ impl EffectModels {
                 None => Vec::new(),
             };
             params.push(param_row(MIX_INDEX, "Mix", &fx.mix, 1.0, inputs, pct));
+            for row in &mut params {
+                row.macro_index = mark(e, row.index as usize);
+            }
             params.iter_mut().for_each(|p| p.restartable = self.restartable);
             update_model(model, params);
             let source =
@@ -3269,6 +3326,90 @@ fn load_midi_preset_for(comp: &mut Composition, avc: &Path, refs: &openvj_resolu
             Some(line)
         }
         Err(e) => Some(format!("Could not read MIDI preset {}: {e}", path.display())),
+    }
+}
+
+// ---------------------------------------------------------------- Synthesis layout
+
+/// Which of `clip`'s parameters a UI row (scope, owner, index) is, for macros.
+fn clip_param_ref(clip: &Clip, scope: i32, owner: i32, index: usize) -> Option<ParamRef> {
+    match scope {
+        scope::CLIP if index >= ISF_PARAM_BASE => match &clip.source {
+            ClipSource::Isf { generator } => {
+                Some(ParamRef::Isf(generator.ty()?.channels.get(index - ISF_PARAM_BASE)?.key.clone()))
+            }
+            _ => None,
+        },
+        scope::CLIP if index < openvj_core::PARAM_COUNT => match clip.source {
+            ClipSource::Generator { .. } | ClipSource::Milkdrop { .. } => Some(ParamRef::Source(index)),
+            _ => None,
+        },
+        scope::CLIP_FX => {
+            let effect = usize::try_from(owner).ok()?;
+            let fx = clip.effects.get(effect)?;
+            let key = if index == MIX_INDEX {
+                openvj_core::MIX_KEY.to_owned()
+            } else {
+                fx.ty()?.channels.get(index)?.key.clone()
+            };
+            Some(ParamRef::Effect { effect, key })
+        }
+        scope::CLIP_TF => Some(ParamRef::Transform(clip.transform.ty()?.channels.get(index)?.key.clone())),
+        _ => None,
+    }
+}
+
+impl App {
+    /// Shows a layer in Synthesis: selects the clip it plays (or its first clip).
+    pub fn synth_focus(&mut self, layer: usize) {
+        let Some(l) = self.comp.layers.get(layer) else { return };
+        let col = l.playing_column().or_else(|| l.clips.iter().position(Option::is_some));
+        self.selected_layer = layer;
+        self.selected = col.map(|c| (layer, c));
+        self.grid_dirty = true;
+        self.props_dirty = true;
+    }
+
+    /// Adds a parameter of the selected clip to macro `m`, or takes it off.
+    pub fn macro_toggle(&mut self, m: usize, scope: i32, owner: i32, index: usize) {
+        let Some(clip) = self.selected_clip_mut() else { return };
+        let Some(r) = clip_param_ref(clip, scope, owner, index) else {
+            self.set_status("Only the visual's own parameters can go on a macro.");
+            return;
+        };
+        clip.toggle_macro_target(m, r);
+        self.grid_dirty = true;
+    }
+
+    /// Takes every parameter off macro `m`.
+    pub fn macro_clear(&mut self, m: usize) {
+        if let Some(mac) = self.selected_clip_mut().and_then(|c| c.macro_mut(m)) {
+            mac.targets.clear();
+            self.grid_dirty = true;
+        }
+    }
+
+    fn sync_synth_layers(&self, ui: &MainWindow) {
+        let rows: Vec<SynthLayer> = self
+            .comp
+            .layers
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, l)| {
+                let clip = l.active.and_then(|p| l.clip_by_id(p.clip_id));
+                let thumb = clip.and_then(|c| self.thumbs.get(&c.id).cloned());
+                SynthLayer {
+                    index: i as i32,
+                    name: l.name.as_str().into(),
+                    clip: clip.map_or(SharedString::new(), |c| c.name.as_str().into()),
+                    has_thumb: thumb.is_some(),
+                    thumb: thumb.unwrap_or_default(),
+                    focused: i == self.selected_layer,
+                }
+            })
+            .collect();
+        ui.set_synth_layers(ModelRc::new(VecModel::from(rows)));
     }
 }
 
