@@ -7,9 +7,10 @@ import { TabButton } from "controls.slint";
 import { SettingsOverlay, GearIcon } from "settings.slint";
 import { MappingWindow, MapLayer, MapHandle, MapCorner } from "mapping.slint";
 import { Layouts, LayoutPicker, LayoutPlaceholder, PlayerLayout, PresetRow } from "layouts.slint";
+import { Disc, DiscoverLayout, DiscParam } from "discover.slint";
 import { Shadertoy, ShadertoyDialog } from "shadertoy.slint";
 import { Lib, LibraryPanel, ExpandedLibrary } from "library.slint";
-export { MappingWindow, MapLayer, MapHandle, MapCorner, Lib }
+export { MappingWindow, MapLayer, MapHandle, MapCorner, Lib, Disc, DiscParam }
 
 export { Theme, Scope, ModNames, AudioLevels, Shadertoy }
 
@@ -1364,8 +1365,11 @@ export component MainWindow inherits Window {
                 }
                 return accept;
             }
-            if ((e.modifiers.control || e.modifiers.meta) && (e.text == "1" || e.text == "2" || e.text == "3")) {
-                root.set-layout(e.text == "1" ? 0 : e.text == "2" ? 1 : 2);
+            if ((e.modifiers.control || e.modifiers.meta) && (e.text == "1" || e.text == "2" || e.text == "3" || e.text == "4")) {
+                root.set-layout(e.text == "1" ? 0 : e.text == "2" ? 1 : e.text == "3" ? 2 : 3);
+                return accept;
+            }
+            if (root.layout == Layouts.discover && !root.settings-open && !e.modifiers.control && !e.modifiers.meta && Disc.key(e.text)) {
                 return accept;
             }
             if (e.text == Key.Tab && root.layout == Layouts.mixer && !root.settings-open) {
@@ -1455,6 +1459,11 @@ export component MainWindow inherits Window {
                 vertical-stretch: 1;
                 layout: root.layout;
                 output-image: root.output-image;
+            }
+
+            if root.layout == Layouts.discover: DiscoverLayout {
+                vertical-stretch: 1;
+                preview-image: root.preview-image;
             }
 
             // Mixer: clip grid, with the monitors on the right.
