@@ -181,6 +181,8 @@ fn main() -> Result<()> {
     }
 
     on!(on_cell_clicked, |a, l: i32, c: i32| a.cell_clicked(l as usize, c as usize));
+    on!(on_cell_pressed, |a, l: i32, c: i32| a.cell_pressed(l as usize, c as usize));
+    on!(on_cell_released, |a, l: i32, c: i32| a.cell_released(l as usize, c as usize));
     on!(on_cell_right_clicked, |a, l: i32, c: i32| a.cell_right_clicked(l as usize, c as usize));
     on!(on_column_clicked, |a, c: i32| a.column_clicked(c as usize));
     on!(on_layer_selected, |a, l: i32| a.select_layer(l));
@@ -212,7 +214,7 @@ fn main() -> Result<()> {
     on!(on_param_set, |a, s: i32, o: i32, i: i32, v: f32| a.param_set(s, o, i as usize, v));
     on!(on_param_mod, |a, s: i32, o: i32, i: i32, m: i32| a.param_mod(s, o, i as usize, m.max(0) as usize));
     on!(on_param_mod_amount, |a, s: i32, o: i32, i: i32, v: f32| a.param_mod_amount(s, o, i as usize, v));
-    on!(on_param_mod_rate, |a, s: i32, o: i32, i: i32, r: i32| a.param_mod_rate(s, o, i as usize, r.max(0) as usize));
+    on!(on_param_mod_tempo, |a, s: i32, o: i32, i: i32, r: i32| a.param_mod_tempo(s, o, i as usize, r));
     on!(on_open_effects_folder, |a| a.open_effects_folder());
 
     // The library grid (ui/library.slint).
@@ -344,6 +346,7 @@ fn main() -> Result<()> {
     on!(on_audio_toggle, |a| a.audio_toggle());
     on!(on_audio_pick, |a, i: i32| a.audio_pick(i.max(0) as usize));
     on!(on_link_toggle, |a| a.link_toggle());
+    on!(on_clock_toggle, |a| a.clock_toggle());
     on!(on_syphon_toggle, |a| a.syphon_toggle());
     on!(on_midi_toggle, |a| a.midi_toggle());
     on!(on_midi_clear, |a| a.midi_clear());
@@ -352,6 +355,9 @@ fn main() -> Result<()> {
     on!(on_clip_restart, |a| a.clip_restart());
     on!(on_layer_renamed, |a, t: slint::SharedString| a.layer_renamed(&t));
     on!(on_clip_play_mode_picked, |a, i: i32| a.clip_play_mode(i.max(0) as usize));
+    on!(on_clip_autopilot_picked, |a, i: i32| a.clip_autopilot(i.max(0) as usize));
+    on!(on_clip_router_input_picked, |a, i: i32| a.clip_router_input(i.max(0) as usize));
+    on!(on_clip_trigger_picked, |a, i: i32| a.clip_trigger(i.max(0) as usize));
     on!(on_clip_synced_picked, |a, b: bool| a.clip_synced(b));
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));

@@ -13,10 +13,10 @@ use std::time::Instant;
 use openvj_audio::{Analyzer, AudioInput};
 use openvj_core::milkdrop::milk_library;
 use openvj_core::{
-    AudioSignal, BAND_COUNT, BeatClock, BlendMode, Clip, ClipId, ClipSource, Composition, CrossfadeCurve,
-    CrossfadeSide, DEFAULT_CLIP_SECS, Effect, MAX_REACTIVITY, MOD_RATES, MidiEffect, MidiMessage, ModInputs, ModSource,
-    Modulation, Param, PlayMode, Playing, SYNC_BEATS, Span, TapTempo, TransitionStyle, apply_midi, library,
-    move_effect,
+    AudioSignal, Autopilot, BAND_COUNT, BeatClock, BlendMode, Clip, ClipId, ClipSource, ClockMessage, Composition,
+    CrossfadeCurve, CrossfadeSide, DEFAULT_CLIP_SECS, Effect, MAX_REACTIVITY, MOD_RATES, MidiClock, MidiEffect,
+    MidiMessage, ModInputs, ModSource, Modulation, Param, PlayMode, Playing, RouterInput, SYNC_BEATS, Span, TapTempo,
+    TransitionStyle, TriggerStyle, apply_midi, library, move_effect,
 };
 use openvj_media::dxv::{self, DxvDecoder, DxvFormat, DxvFrame};
 use openvj_media::hap::{self, HapDecoder, HapFormat, HapFrame};
@@ -79,7 +79,10 @@ const MAX_DURATION: f32 = 60.0;
 const MAX_SPEED: f32 = 4.0;
 const MAX_TRANSITION: f32 = 4.0;
 const MAX_RELEASE: f32 = 1.0;
-const RATE_LABELS: [&str; MOD_RATES.len()] = ["¼", "½", "1", "2", "4", "8", "16"];
+const RATE_LABELS: [&str; MOD_RATES.len()] = ["¼", "½", "1", "2", "4", "8", "16", "32", "64"];
+/// Codes sent with `param-mod-tempo` besides a rate index; must match `ModNames` in state.slint.
+const TEMPO_PHASE: i32 = 100;
+const TEMPO_RESTART: i32 = 200;
 /// Seconds a live input stays open after its last clip stops, so relaunching is instant.
 const LIVE_LINGER: f64 = 3.0;
 /// Seconds before reconnecting an input that failed (unplugged camera, app not running).
@@ -181,6 +184,11 @@ pub struct App {
     tap: TapTempo,
     beat_clock: BeatClock,
     link: Link,
+    /// CLOCK: the tempo follows MIDI clock instead of BPM, TAP or Link.
+    clock_on: bool,
+    midi_clock: MidiClock,
+    /// The input the clock is following; another input's clock is ignored until it goes quiet.
+    clock_port: Option<String>,
     /// Beat and audio levels for this frame.
     inputs: ModInputs,
     last_frame: f64,
@@ -200,6 +208,7 @@ pub struct App {
     /// The last message received, for checking a controller is talking to openVJ.
     midi_last: String,
     midi_dirty: bool,
+    clock_dirty: bool,
     /// Where things in the last imported `.avc` ended up, for resolving MIDI presets.
     /// Cleared when another composition is opened.
     resolume_refs: Option<openvj_resolume::ResolumeRefs>,
@@ -312,6 +321,9 @@ impl App {
             tap: TapTempo::default(),
             beat_clock: BeatClock::new(comp.bpm),
             link: Link::new(comp.bpm),
+            clock_on: false,
+            midi_clock: MidiClock::new(),
+            clock_port: None,
             inputs: ModInputs::default(),
             last_frame: 0.0,
             analyzer: Analyzer::new(48_000),
@@ -325,6 +337,7 @@ impl App {
             midi_status: "Off".into(),
             midi_last: String::new(),
             midi_dirty: true,
+            clock_dirty: true,
             resolume_refs: None,
             selected: None,
             selected_layer: 0,
@@ -381,9 +394,9 @@ impl App {
             comp_fx: EffectModels::default(),
             layer_fx: EffectModels::default(),
             group_fx: EffectModels::default(),
-            clip_fx: EffectModels::default(),
+            clip_fx: EffectModels { restartable: true, ..Default::default() },
             layer_tf: EffectModels::default(),
-            clip_tf: EffectModels::default(),
+            clip_tf: EffectModels { restartable: true, ..Default::default() },
             grid_dirty: true,
             props_dirty: true,
             effects_generation: None,
@@ -398,6 +411,9 @@ impl App {
         };
         app.set_composition(comp, None);
         app.open_midi();
+        if crate::prefs::flag("midi_clock") {
+            app.set_clock(true);
+        }
         app
     }
 
@@ -435,6 +451,8 @@ impl App {
         let names =
             |v: Vec<&str>| ModelRc::new(VecModel::from(v.into_iter().map(SharedString::from).collect::<Vec<_>>()));
         ui.set_play_modes(names(PlayMode::ALL.iter().map(|m| m.name()).collect()));
+        ui.set_autopilot_modes(names(Autopilot::ALL.iter().map(|m| m.name()).collect()));
+        ui.set_trigger_styles(names(TriggerStyle::ALL.iter().map(|m| m.name()).collect()));
         ui.set_crossfade_curves(names(CrossfadeCurve::ALL.iter().map(|c| c.name()).collect()));
         ui.set_link_available(Link::AVAILABLE);
         ui.set_syphon_available(syphon_out::AVAILABLE);
@@ -891,6 +909,13 @@ impl App {
         ui.set_beat(self.inputs.beat.rem_euclid(1024.0) as f32);
         ui.set_link_on(self.link.is_enabled());
         ui.set_link_peers(self.link.peers() as i32);
+        let waiting = self.clock_on && self.midi_clock.is_waiting(now);
+        if self.clock_dirty || waiting != ui.get_clock_waiting() {
+            self.clock_dirty = false;
+            ui.set_clock_on(self.clock_on);
+            ui.set_clock_waiting(waiting);
+            ui.set_clock_port(self.clock_port.clone().unwrap_or_default().into());
+        }
         self.frames += 1;
         let elapsed = self.fps_since.elapsed().as_secs_f64();
         if elapsed >= 1.0 {
@@ -975,7 +1000,15 @@ impl App {
 
     /// Beat position for this frame, from Ableton Link when it's on.
     fn update_tempo(&mut self, now: f64) -> f64 {
-        if self.link.is_enabled() {
+        let clock = if self.clock_on { self.midi_clock.bpm().zip(self.midi_clock.beat_at(now)) } else { None };
+        if let Some((bpm, beat)) = clock {
+            let shown = (bpm * 10.0).round() / 10.0;
+            if shown != self.comp.bpm {
+                self.comp.bpm = shown;
+                self.grid_dirty = true;
+            }
+            self.beat_clock.sync(now, beat, bpm);
+        } else if self.link.is_enabled() {
             let (beat, bpm) = self.link.capture();
             let shown = (bpm * 10.0).round() / 10.0;
             if shown != self.comp.bpm {
@@ -1008,7 +1041,13 @@ impl App {
             presence: f.presence,
             clock: f.clock,
         };
-        ModInputs { beat, bands: l.bands, band_signals: l.band_features.map(signal), overall: signal(l.overall) }
+        ModInputs {
+            beat,
+            bands: l.bands,
+            band_signals: l.band_features.map(signal),
+            overall: signal(l.overall),
+            launch_beat: 0.0,
+        }
     }
 
     /// Parameter rows change every frame while modulated, so they are rebuilt each sync
@@ -1145,6 +1184,9 @@ impl App {
                 let reset = DEFAULT_CLIP_SECS / MAX_DURATION;
                 rows.push(fixed_row(DURATION_INDEX, "Duration", d / MAX_DURATION, reset, format!("{d:.1} s")));
             }
+        }
+        for row in rows.iter_mut().filter(|r| r.modulatable) {
+            row.restartable = true;
         }
         update_model(&self.clip_params, rows);
     }
@@ -1316,6 +1358,16 @@ impl App {
             ui.set_clip_path(path.into());
             ui.set_preview_label(clip.name.as_str().into());
             ui.set_clip_play_mode(clip.play_mode.index() as i32);
+            ui.set_clip_autopilot(clip.autopilot.index() as i32);
+            let inputs = RouterInput::all(&self.comp);
+            let current = match clip.source {
+                ClipSource::Router { input } => inputs.iter().position(|i| *i == input).map_or(0, |i| i as i32),
+                _ => -1,
+            };
+            let labels: Vec<SharedString> = inputs.iter().map(|i| i.label(&self.comp).into()).collect();
+            ui.set_router_inputs(ModelRc::new(VecModel::from(labels)));
+            ui.set_clip_router_input(current);
+            ui.set_clip_trigger(clip.trigger.index() as i32);
             ui.set_clip_synced(clip.sync_beats.is_some());
         } else {
             ui.set_preview_label(SharedString::default());
@@ -1367,7 +1419,7 @@ impl App {
         let armed = self.armed.as_ref().map(|a| match a {
             Armed::Library(id) => self.library.lib.get(id).map_or_else(|| id.clone(), |i| i.name.clone()),
             Armed::File(p) => p.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default(),
-            Armed::Input(source) => source.live_name().unwrap_or_default(),
+            Armed::Input(source) => source.live_name().unwrap_or_else(|| source.default_name()),
         });
         ui.set_armed(armed.is_some());
         ui.set_armed_label(armed.unwrap_or_default().into());
@@ -1378,8 +1430,13 @@ impl App {
             .input_sources()
             .into_iter()
             .map(|source| BrowserItem {
-                name: source.live_name().unwrap_or_default().into(),
-                detail: if matches!(source, ClipSource::Camera { .. }) { "camera" } else { "Syphon" }.into(),
+                name: source.live_name().unwrap_or_else(|| source.default_name()).into(),
+                detail: match source {
+                    ClipSource::Camera { .. } => "camera",
+                    ClipSource::Router { .. } => "another layer, group or the composition",
+                    _ => "Syphon",
+                }
+                .into(),
                 kind: source.kind_label().into(),
                 armed: self.armed == Some(Armed::Input(source)),
             })
@@ -1425,7 +1482,8 @@ impl App {
             return;
         }
         let now = self.now();
-        if self.comp.clip(layer, col).is_some() {
+        // Piano clips launched on the press already (cell_pressed).
+        if self.comp.clip(layer, col).is_some_and(|c| c.trigger != TriggerStyle::Piano) {
             self.stop_automix_for_mixer();
             self.comp.trigger(layer, col, now);
             self.last_column = None;
@@ -1434,6 +1492,25 @@ impl App {
         self.selected_layer = layer;
         self.grid_dirty = true;
         self.props_dirty = true;
+    }
+
+    /// The mouse went down on a slot: a Piano clip starts playing now, until it's let go.
+    pub fn cell_pressed(&mut self, layer: usize, col: usize) {
+        if self.armed.is_some() || self.comp.clip(layer, col).is_none_or(|c| c.trigger != TriggerStyle::Piano) {
+            return;
+        }
+        self.stop_automix_for_mixer();
+        let now = self.now();
+        self.comp.trigger(layer, col, now);
+        self.last_column = None;
+        self.grid_dirty = true;
+    }
+
+    /// The mouse was let go after pressing a slot: a Piano clip stops.
+    pub fn cell_released(&mut self, layer: usize, col: usize) {
+        let now = self.now();
+        self.comp.release(layer, col, now);
+        self.grid_dirty = true;
     }
 
     pub fn cell_right_clicked(&mut self, layer: usize, col: usize) {
@@ -1602,6 +1679,32 @@ impl App {
         }
     }
 
+    pub fn clip_autopilot(&mut self, mode: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.autopilot = Autopilot::from_index(mode);
+            self.props_dirty = true;
+        }
+    }
+
+    /// Points the selected Layer Router clip at another input (in [`RouterInput::all`] order).
+    pub fn clip_router_input(&mut self, index: usize) {
+        let Some(input) = RouterInput::all(&self.comp).get(index).copied() else { return };
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c))
+            && let ClipSource::Router { input: current } = &mut clip.source
+        {
+            *current = input;
+            self.props_dirty = true;
+            self.grid_dirty = true;
+        }
+    }
+
+    pub fn clip_trigger(&mut self, style: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.trigger = TriggerStyle::from_index(style);
+            self.props_dirty = true;
+        }
+    }
+
     /// Switches the selected clip between its own speed and beat sync.
     pub fn clip_synced(&mut self, synced: bool) {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
@@ -1721,13 +1824,14 @@ impl App {
         }
     }
 
-    /// Cameras, then Syphon servers, as clip sources for the browser.
+    /// The Layer Router, cameras, then Syphon servers, as clip sources for the browser.
     fn input_sources(&self) -> Vec<ClipSource> {
+        let router = std::iter::once(ClipSource::Router { input: RouterInput::Composition });
         let cameras =
             self.cameras.iter().map(|c| ClipSource::Camera { device: c.name.clone(), device_id: c.id.clone() });
         let servers =
             self.syphon_servers.iter().map(|s| ClipSource::Syphon { app: s.app.clone(), server: s.server.clone() });
-        cameras.chain(servers).collect()
+        router.chain(cameras).chain(servers).collect()
     }
 
     pub fn input_clicked(&mut self, i: usize) {
@@ -1803,12 +1907,18 @@ impl App {
 
     pub fn tap(&mut self) {
         let now = self.now();
+        if self.clock_on {
+            return;
+        }
         if let Some(bpm) = self.tap.tap(now) {
             self.set_bpm((bpm * 10.0).round() / 10.0);
         }
     }
 
     pub fn nudge_bpm(&mut self, delta: f32) {
+        if self.clock_on {
+            return;
+        }
         self.set_bpm((self.comp.bpm + delta).clamp(20.0, 300.0).round());
     }
 
@@ -1836,6 +1946,10 @@ impl App {
             return;
         }
         let on = !self.link.is_enabled();
+        if on && self.clock_on {
+            self.set_clock(false);
+            crate::prefs::set_flag("midi_clock", false);
+        }
         self.link.set_enabled(on, self.comp.bpm);
         self.set_status(if on {
             "Ableton Link on: tempo and beat follow the Link session"
@@ -1931,8 +2045,13 @@ impl App {
         }
         let Some(ports) = &self.midi else { return };
         let connected: Vec<String> = ports.names().map(str::to_owned).collect();
-        let messages: Vec<(String, Vec<u8>)> = ports.drain().into_iter().map(|(p, m)| (p.to_owned(), m)).collect();
-        for (port, bytes) in messages {
+        let messages: Vec<(String, Instant, Vec<u8>)> =
+            ports.drain().into_iter().map(|(p, at, m)| (p.to_owned(), at, m)).collect();
+        for (port, at, bytes) in messages {
+            if let Some(clock) = ClockMessage::parse(&bytes) {
+                self.clock_message(&port, clock, at.saturating_duration_since(self.clock).as_secs_f64());
+                continue;
+            }
             let Some(msg) = MidiMessage::parse(&bytes) else { continue };
             let actions = self.comp.midi.handle_from(msg, &port, &connected);
             self.midi_last =
@@ -1959,7 +2078,7 @@ impl App {
                         self.column_clicked(col);
                     }
                     MidiEffect::ResyncTempo => {
-                        if !self.link.is_enabled() {
+                        if !self.link.is_enabled() && !self.clock_on {
                             self.beat_clock.sync(now, 0.0, self.comp.bpm);
                         }
                     }
@@ -1967,6 +2086,48 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Feeds a MIDI clock message that arrived at `t` (app seconds) from `port`.
+    fn clock_message(&mut self, port: &str, msg: ClockMessage, t: f64) {
+        if !self.clock_on {
+            return;
+        }
+        // Follow one input at a time: the first that sends clock, until it goes quiet.
+        let quiet = self.midi_clock.is_waiting(t) && msg == ClockMessage::Pulse;
+        match &self.clock_port {
+            Some(p) if p != port && !quiet => return,
+            Some(p) if p == port => {}
+            _ => {
+                self.clock_port = Some(port.to_owned());
+                self.clock_dirty = true;
+                self.set_status(format!("MIDI clock from {port}"));
+            }
+        }
+        self.midi_clock.message(msg, t);
+    }
+
+    pub fn clock_toggle(&mut self) {
+        self.set_clock(!self.clock_on);
+        crate::prefs::set_flag("midi_clock", self.clock_on);
+    }
+
+    fn set_clock(&mut self, on: bool) {
+        self.clock_on = on;
+        self.midi_clock = MidiClock::new();
+        self.clock_port = None;
+        self.clock_dirty = true;
+        if !on {
+            self.set_status("MIDI clock off");
+            return;
+        }
+        if self.link.is_enabled() {
+            self.link.set_enabled(false, self.comp.bpm);
+        }
+        if self.midi.is_none() {
+            self.open_midi();
+        }
+        self.set_status("MIDI clock on: tempo and beat follow the first MIDI input that sends clock");
     }
 
     /// Loads a Resolume MIDI shortcut preset into the composition, replacing its mappings.
@@ -2125,8 +2286,12 @@ impl App {
     }
 
     pub fn param_mod(&mut self, scope: i32, owner: i32, index: usize, source: usize) {
+        let seed = random_seed();
         if let Some(m) = self.modulation_mut(scope, owner, index) {
             m.source = ModSource::from_index(source);
+            if m.source.is_random() && m.seed == 0 {
+                m.seed = seed;
+            }
             self.grid_dirty = true;
         }
     }
@@ -2137,9 +2302,15 @@ impl App {
         }
     }
 
-    pub fn param_mod_rate(&mut self, scope: i32, owner: i32, index: usize, rate: usize) {
+    /// Sets a tempo shape's rate (an index into [`MOD_RATES`]), phase (`TEMPO_PHASE` + quarters)
+    /// or restart on launch (`TEMPO_RESTART` + 0 or 1).
+    pub fn param_mod_tempo(&mut self, scope: i32, owner: i32, index: usize, code: i32) {
         if let Some(m) = self.modulation_mut(scope, owner, index) {
-            m.beats = MOD_RATES[rate.min(MOD_RATES.len() - 1)];
+            match code {
+                TEMPO_RESTART.. => m.restart = code > TEMPO_RESTART,
+                TEMPO_PHASE.. => m.phase = (code - TEMPO_PHASE).clamp(0, 3) as f32 / 4.0,
+                _ => m.beats = MOD_RATES[(code.max(0) as usize).min(MOD_RATES.len() - 1)],
+            }
         }
     }
 
@@ -2995,7 +3166,16 @@ fn param_row(
         mod_source: m.source.index() as i32,
         mod_amount: m.amount,
         mod_rate: m.rate_index() as i32,
+        mod_phase: (m.phase * 4.0).round() as i32 % 4,
+        mod_restart: m.restart,
+        restartable: false,
     }
+}
+
+/// A seed for a new Random mapping, so two mappings set up the same way still differ.
+fn random_seed() -> u32 {
+    use std::hash::{BuildHasher, RandomState};
+    (RandomState::new().hash_one(Instant::now()) as u32).max(1)
 }
 
 /// A row without a modulator (speed, transition, analyser settings).
@@ -3018,6 +3198,8 @@ fn fixed_row(index: usize, name: &str, value: f32, reset: f32, display: String) 
 struct EffectModels {
     effects: Rc<VecModel<EffectData>>,
     params: Vec<Rc<VecModel<ParamData>>>,
+    /// A clip's chain: its tempo mappings can restart when the clip launches.
+    restartable: bool,
 }
 
 impl EffectModels {
@@ -3039,6 +3221,7 @@ impl EffectModels {
                 None => Vec::new(),
             };
             params.push(param_row(MIX_INDEX, "Mix", &fx.mix, 1.0, inputs, pct));
+            params.iter_mut().for_each(|p| p.restartable = self.restartable);
             update_model(model, params);
             let source =
                 fx.ty().map(|t| t.def.source.clone()).filter(|u| u.starts_with("https://")).unwrap_or_default();
