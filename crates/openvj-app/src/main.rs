@@ -70,9 +70,45 @@ fn open_dialog() -> rfd::FileDialog {
         .set_title("Open composition")
 }
 
+/// macOS: windows created while this is set get no system title bar. Their content fills the
+/// whole window and the close/minimise/zoom buttons sit over the app's own top bar, as in openDJ.
+/// Only the main window uses it; the output and mapping windows keep their normal frame.
+#[cfg(target_os = "macos")]
+mod titlebar {
+    use std::cell::Cell;
+
+    use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
+    use slint::winit_030::winit::window::WindowAttributes;
+
+    /// Width the window buttons take on the left of the top bar.
+    pub const INSET: f32 = 70.0;
+
+    thread_local! {
+        static HIDE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub fn hook(attrs: WindowAttributes) -> WindowAttributes {
+        if !HIDE.get() {
+            return attrs;
+        }
+        attrs.with_titlebar_transparent(true).with_title_hidden(true).with_fullsize_content_view(true)
+    }
+
+    /// Runs `create` with the title bar hidden for the windows it makes.
+    pub fn hidden<T>(create: impl FnOnce() -> T) -> T {
+        HIDE.set(true);
+        let made = create();
+        HIDE.set(false);
+        made
+    }
+}
+
 fn main() -> Result<()> {
     let (instance, adapter, device, queue) = init_gpu()?;
-    slint::BackendSelector::new()
+    let selector = slint::BackendSelector::new();
+    #[cfg(target_os = "macos")]
+    let selector = selector.with_winit_window_attributes_hook(titlebar::hook);
+    selector
         .require_wgpu_30(slint::wgpu_30::WGPUConfiguration::Manual {
             instance,
             adapter,
@@ -84,6 +120,7 @@ fn main() -> Result<()> {
 
     // ISF effects from ~/Documents/openVJ/Effects and the standard ISF folders, reloaded on change.
     openvj_core::effect_folders::watch(openvj_core::effect_folders::default_dirs(), openvj_render::check_effect);
+    openvj_core::milkdrop::watch(openvj_core::milkdrop::default_dirs());
 
     // `openvj [composition.json | composition.avc | media folder]`
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
@@ -91,7 +128,21 @@ fn main() -> Result<()> {
     let engine = Engine::new(device, queue, comp.width, comp.height);
     let app = Rc::new(RefCell::new(App::new(engine, comp)));
 
+    #[cfg(target_os = "macos")]
+    let ui = titlebar::hidden(MainWindow::new)?;
+    #[cfg(not(target_os = "macos"))]
     let ui = MainWindow::new()?;
+    #[cfg(target_os = "macos")]
+    ui.set_titlebar_inset(titlebar::INSET);
+    {
+        let w = ui.as_weak();
+        ui.on_toggle_maximized(move || {
+            if let Some(ui) = w.upgrade() {
+                let window = ui.window();
+                window.set_maximized(!window.is_maximized());
+            }
+        });
+    }
     let out = OutputWindow::new()?;
     // Open in the layout used last time (Mixer the first time).
     ui.set_layout(prefs::layout());
@@ -158,6 +209,9 @@ fn main() -> Result<()> {
     on!(on_param_mod_rate, |a, s: i32, o: i32, i: i32, r: i32| a.param_mod_rate(s, o, i as usize, r.max(0) as usize));
     on!(on_effect_add, |a, s: i32, k: i32| a.effect_add(s, k.max(0) as usize));
     on!(on_open_effects_folder, |a| a.open_effects_folder());
+    on!(on_milk_clicked, |a, i: i32| a.milk_clicked(i.max(0) as usize));
+    on!(on_milk_double_clicked, |a, i: i32| a.milk_double_clicked(i.max(0) as usize));
+    on!(on_open_milk_folder, |a| a.open_milk_folder());
     on!(on_effect_toggle, |a, s: i32, i: i32| a.effect_toggle(s, i.max(0) as usize));
     on!(on_effect_remove, |a, s: i32, i: i32| a.effect_remove(s, i.max(0) as usize));
     on!(on_effect_move, |a, s: i32, i: i32, d: i32| a.effect_move(s, i.max(0) as usize, d));
