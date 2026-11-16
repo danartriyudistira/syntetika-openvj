@@ -13,6 +13,7 @@ pub mod milkdrop;
 mod modulation;
 mod output;
 mod playback;
+pub mod shadertoy;
 mod tempo;
 
 pub use composition::*;
