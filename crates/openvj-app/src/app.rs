@@ -33,8 +33,8 @@ use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
     AudioLevels, BrowserItem, CellData, ColumnData, DeckData, Disc, DiscParam, EffectData, LayerData, Lib, LibChip,
-    LibSideRow, LibTile, MainWindow, MappingWindow, MediaTile, MidiLearn, ModNames, OutputWindow, ParamData, Pl,
-    PresetRow, Shadertoy, SynthLayer,
+    LibSideRow, LibTile, MainWindow, MappingWindow, MediaTile, MidiLearn, MilkPack, ModNames, OutputWindow, ParamData,
+    Pl, PresetRow, Shadertoy, SynthLayer,
 };
 
 // The output mapping window's side of the app.
@@ -336,6 +336,8 @@ pub struct App {
     /// [`EffectLibrary::generation`] the Effects tab shows.
     effects_generation: Option<u64>,
     /// Ids of the ISF generators in the Sources tab, after the built-ins, in row order.
+    /// The community pack download as last shown (see [`crate::milk_pack`]).
+    milk_pack_shown: crate::milk_pack::Progress,
     /// [`MilkLibrary::generation`](openvj_core::milkdrop::MilkLibrary) the MilkDrop tab shows.
     milk_generation: Option<u64>,
     browser_dirty: bool,
@@ -467,6 +469,7 @@ impl App {
             props_dirty: true,
             effects_generation: None,
             milk_generation: None,
+            milk_pack_shown: crate::milk_pack::Progress::Idle,
             browser_dirty: true,
             images_dirty: true,
             frames: 0,
@@ -1021,6 +1024,7 @@ impl App {
 
         self.update_effect_library(ui);
         self.update_milk_library(ui);
+        self.update_milk_pack(ui);
         self.update_library(dt);
         if self.escape_at.is_some_and(|t| now - t > 0.8) {
             self.escape_at = None;
@@ -2783,6 +2787,25 @@ impl App {
         if !first && lib.generation > 1 {
             self.set_status(format!("MilkDrop presets reloaded: {}", lib.presets().len()));
         }
+    }
+
+    /// Shows how the MilkDrop community pack download is going, in its dialog and, when it
+    /// ends, in the status bar.
+    fn update_milk_pack(&mut self, ui: &MainWindow) {
+        use crate::milk_pack::{Progress, describe, installed, progress};
+        let p = progress();
+        if p == self.milk_pack_shown {
+            return;
+        }
+        let g = ui.global::<MilkPack>();
+        g.set_busy(matches!(p, Progress::Running { .. }));
+        g.set_failed(matches!(p, Progress::Failed(_)));
+        g.set_message(describe(&p).into());
+        if matches!(p, Progress::Done { .. } | Progress::Failed(_)) {
+            g.set_installed(installed());
+            self.set_status(describe(&p));
+        }
+        self.milk_pack_shown = p;
     }
 
     /// Opens the openVJ MilkDrop folder in Finder (or the system file manager).

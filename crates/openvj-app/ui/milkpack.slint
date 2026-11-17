@@ -1,0 +1,96 @@
+// The MilkDrop community pack: a dialog over the app that offers to download projectM's
+// "Cream of the Crop" presets into the MilkDrop folder. Shown once on first launch and from
+// the Sources tab's MilkDrop… button. State lives in the `MilkPack` global.
+import { Theme } from "theme.slint";
+import { FlatButton } from "controls.slint";
+
+export global MilkPack {
+    in-out property <bool> open;
+    /// A download is running.
+    in property <bool> busy;
+    /// The pack is already in the MilkDrop folder.
+    in property <bool> installed;
+    /// How the download is going, or how it ended.
+    in property <string> message;
+    in property <bool> failed;
+    /// Where the presets go, for the text.
+    in property <string> folder;
+    callback download();
+    /// The VJ said no (or closed the first-launch question).
+    callback declined();
+    callback open-folder();
+}
+
+export component MilkPackDialog inherits Rectangle {
+    background: #000000a0;
+
+    TouchArea {}
+
+    panel := Rectangle {
+        width: min(520px, root.width - 40px);
+        height: content.preferred-height;
+        x: (root.width - self.width) / 2;
+        y: max(20px, (root.height - self.height) / 3);
+        border-radius: Theme.radius * 2;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.separator;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+        TouchArea {}
+
+        content := VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+            Text {
+                text: "MilkDrop community pack";
+                color: Theme.text;
+                font-size: Theme.font-xl;
+                font-weight: 700;
+            }
+            Text {
+                text: "openVJ plays MilkDrop presets, the classic audio-reactive visuals from Winamp. Add projectM's \"Cream of the Crop\" pack: about 9,800 presets curated by ISOSCELES, plus the textures they use. It downloads from GitHub into " + MilkPack.folder + ".";
+                color: Theme.text-dim;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            Text {
+                text: "The presets were made by the MilkDrop community and mostly carry no licence; projectM treats them as public domain. They aren't part of openVJ.";
+                color: Theme.text-faint;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+            if MilkPack.message != "": Text {
+                text: MilkPack.message;
+                color: MilkPack.failed ? Theme.danger : Theme.accent;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                FlatButton {
+                    text: "Open folder";
+                    clicked => { MilkPack.open-folder(); }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                FlatButton {
+                    text: MilkPack.busy ? "Hide" : MilkPack.installed ? "Close" : "No thanks";
+                    clicked => {
+                        if (!MilkPack.busy && !MilkPack.installed) {
+                            MilkPack.declined();
+                        }
+                        MilkPack.open = false;
+                    }
+                }
+                FlatButton {
+                    text: MilkPack.busy ? "Downloading…" : MilkPack.installed ? "Download again" : "Add the pack";
+                    primary: true;
+                    enabled: !MilkPack.busy;
+                    clicked => { MilkPack.download(); }
+                }
+            }
+        }
+    }
+}
