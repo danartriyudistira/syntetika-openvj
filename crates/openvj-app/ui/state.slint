@@ -14,6 +14,11 @@ export global Scope {
     out property <int> clip-tf: 9;
     // The selected clip's macros; the index is the macro.
     out property <int> clip-macro: 10;
+    // The selected layer's META look (Synthesis layout).
+    out property <int> layer-look: 11;
+    // The selected layer's media overlay, and its colour.
+    out property <int> overlay: 12;
+    out property <int> overlay-look: 13;
 }
 
 /// Names for modulation menus, filled in from Rust.

@@ -6,10 +6,12 @@ mod discover;
 mod library;
 mod link;
 mod mapping;
+mod media_browser;
 mod midi;
 mod player;
 mod prefs;
 mod shadertoy_import;
+mod synth_controls;
 mod syphon_out;
 
 use std::cell::RefCell;
@@ -153,7 +155,8 @@ fn main() -> Result<()> {
     }
     let out = OutputWindow::new()?;
     // Open in the layout used last time (Mixer the first time).
-    ui.set_layout(prefs::layout());
+    // OPENVJ_LAYOUT=n opens layout n (0 Mixer, 1 Player, 2 Synthesis, 3 Discover), for screenshots.
+    ui.set_layout(std::env::var("OPENVJ_LAYOUT").ok().and_then(|v| v.parse().ok()).unwrap_or_else(prefs::layout));
     {
         let mut a = app.borrow_mut();
         a.attach(&ui);
@@ -459,6 +462,67 @@ fn main() -> Result<()> {
     {
         let (app, w, o) = (app.clone(), w.clone(), o.clone());
         ui.on_synth_focus(move |l| with_app(&app, &w, &o, |a| a.synth_focus(l as usize)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_synth_group(move |scope, owner, op| with_app(&app, &w, &o, |a| a.synth_group(scope, owner, op)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_synth_row(move |row, op| with_app(&app, &w, &o, |a| a.synth_row(row, op)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_synth_touch(move |scope, owner| with_app(&app, &w, &o, |a| a.synth_touch(scope, owner)));
+    }
+    // Synthesis media overlay and browser.
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_overlay_pick(move |i| with_app(&app, &w, &o, |a| a.overlay_pick(i as usize)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_overlay_clear(move || with_app(&app, &w, &o, |a| a.overlay_clear()));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_overlay_transport(move |op| with_app(&app, &w, &o, |a| a.overlay_transport(op)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_overlay_scrub(move |at| with_app(&app, &w, &o, |a| a.overlay_scrub(at)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_overlay_play_mode_picked(move |i| with_app(&app, &w, &o, |a| a.overlay_play_mode(i as usize)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_overlay_blend_picked(move |i| with_app(&app, &w, &o, |a| a.overlay_blend(i as usize)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_media_chip_picked(move |i| with_app(&app, &w, &o, |a| a.media_chip(i as usize)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_media_lock(move || with_app(&app, &w, &o, |a| a.media_lock()));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_media_refresh(move || with_app(&app, &w, &o, |a| a.media_refresh()));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_media_remove_folder(move |i| with_app(&app, &w, &o, |a| a.media_remove_folder(i as usize)));
+    }
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_media_add_folder(move || {
+            if let Some(dir) = rfd::FileDialog::new().set_title("Add a media folder").pick_folder() {
+                with_app(&app, &w, &o, |a| a.media_add_folder(dir));
+            }
+        });
     }
     {
         let (app, w, o) = (app.clone(), w.clone(), o.clone());
