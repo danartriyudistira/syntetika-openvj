@@ -10,12 +10,13 @@ import { Layouts, LayoutPicker } from "layouts.slint";
 import { Pl, PlayerLayout, PresetRow } from "player.slint";
 import { Disc, DiscoverLayout, DiscParam } from "discover.slint";
 import { Shadertoy, ShadertoyDialog } from "shadertoy.slint";
+import { MilkPack, MilkPackDialog } from "milkpack.slint";
 import { SynthesisLayout, SynthLayer, MediaTile } from "synthesis.slint";
 import { Lib, LibraryPanel, ExpandedLibrary } from "library.slint";
 import { Drag, DragSource } from "drag.slint";
 export { MappingWindow, MapLayer, MapHandle, MapCorner, Lib, Disc, DiscParam, Drag }
 
-export { Theme, Scope, ModNames, AudioLevels, Shadertoy, MidiLearn, Pl }
+export { Theme, Scope, ModNames, AudioLevels, Shadertoy, MilkPack, MidiLearn, Pl }
 
 component ClipCell inherits Rectangle {
     in property <CellData> data;
@@ -1103,8 +1104,8 @@ component Browser inherits Rectangle {
                     clicked => { Shadertoy.open = true; }
                 }
                 FlatButton {
-                    text: "MilkDrop folder";
-                    clicked => { root.open-milk-folder(); }
+                    text: "MilkDrop…";
+                    clicked => { MilkPack.open = true; }
                 }
             }
         }
@@ -2069,6 +2070,13 @@ export component MainWindow inherits Window {
         }
 
         if Shadertoy.open: ShadertoyDialog {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+        }
+
+        if MilkPack.open: MilkPackDialog {
             x: 0;
             y: 0;
             width: parent.width;

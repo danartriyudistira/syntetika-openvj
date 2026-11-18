@@ -9,6 +9,7 @@ mod link;
 mod mapping;
 mod media_browser;
 mod midi;
+mod milk_pack;
 mod player;
 mod prefs;
 mod shadertoy_import;
@@ -355,6 +356,31 @@ fn main() -> Result<()> {
         g.on_mappable(move |id, _| app2.try_borrow().is_ok_and(|a| a.learn_target(&id).is_some()));
         let app2 = app.clone();
         g.on_label(move |id, _| app2.try_borrow().map(|a| a.learn_label(&id).into()).unwrap_or_default());
+    }
+
+    // The MilkDrop community pack (ui/milkpack.slint): asked once on first launch.
+    {
+        let g = ui.global::<MilkPack>();
+        let folder = openvj_core::milkdrop::user_dir().map(|d| browser::short_path(&d, 60)).unwrap_or_default();
+        g.set_folder(folder.into());
+        g.set_installed(milk_pack::installed());
+        let w2 = w.clone();
+        g.on_download(move || {
+            let Some(ui) = w2.upgrade() else { return };
+            prefs::set_flag(milk_pack::ASKED_FLAG, true);
+            ui.global::<MilkPack>().set_busy(true);
+            milk_pack::start(|| {});
+        });
+        g.on_declined(|| prefs::set_flag(milk_pack::ASKED_FLAG, true));
+        let app2 = app.clone();
+        g.on_open_folder(move || {
+            if let Ok(mut a) = app2.try_borrow_mut() {
+                a.open_milk_folder();
+            }
+        });
+        if milk_pack::should_ask() {
+            g.set_open(true);
+        }
     }
 
     // Import from Shadertoy (ui/shadertoy.slint).
