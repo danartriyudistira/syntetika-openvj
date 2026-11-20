@@ -353,6 +353,11 @@ pub struct App {
 
     frames: u32,
     fps_since: Instant,
+    render_ms: f32,
+    render_passes: usize,
+    dropped_frames: u32,
+    performance_mode: i32,
+    performance_thumbnails: bool,
 
     /// The Player layout's playlist and Automix (see player.rs).
     player: PlayerState,
@@ -365,6 +370,18 @@ impl App {
         let (load_tx, load_rx) = mpsc::channel();
         let browser_dir = browser::default_dir();
         let syphon_out = SyphonOutput::new(engine.device(), engine.queue());
+        let performance_mode = match std::env::var("SYNTHETIKA_FPS").ok().and_then(|v| v.parse::<u32>().ok()) {
+            Some(45) => 1,
+            Some(60) => 2,
+            _ if cfg!(target_os = "windows") => 0,
+            _ => 2,
+        };
+        let mut engine = engine;
+        engine.set_preview_interval(match performance_mode {
+            0 => 1.0 / 15.0,
+            1 => 1.0 / 30.0,
+            _ => 0.0,
+        });
         let mut app = Self {
             comp: Composition::default(),
             engine,
@@ -474,6 +491,11 @@ impl App {
             images_dirty: true,
             frames: 0,
             fps_since: Instant::now(),
+            render_ms: 0.0,
+            render_passes: 0,
+            dropped_frames: 0,
+            performance_mode,
+            performance_thumbnails: true,
             player: PlayerState::default(),
             player_thumbs: Vec::new(),
             library: crate::library::AppLibrary::load(),
@@ -968,6 +990,9 @@ impl App {
         let now = self.now();
         let dt = (now - self.last_frame).clamp(0.0, 0.25) as f32;
         self.last_frame = now;
+        if dt > 0.045 {
+            self.dropped_frames = self.dropped_frames.saturating_add(1);
+        }
         let beat = self.update_tempo(now);
         let live = self.comp.live_clip_ids();
         self.comp.tick(now, beat);
@@ -990,6 +1015,7 @@ impl App {
             clip.apply_macros(&inputs);
         }
         let preview = self.selected.and_then(|(l, c)| self.comp.clip(l, c)).map(|c| c.id);
+        let render_started = Instant::now();
         self.syphon_out.before_render(&mut self.engine);
         // While Automix plays, the Player's own composition goes to the output instead.
         match self.player.frame(&self.comp, now, beat, self.comp.bpm, &self.inputs) {
@@ -1005,6 +1031,8 @@ impl App {
             }
         }
         self.syphon_out.after_render(&self.engine);
+        self.render_ms = render_started.elapsed().as_secs_f32() * 1000.0;
+        self.render_passes = self.engine.last_pass_count();
         ui.set_syphon_on(self.syphon_out.is_enabled());
         ui.set_syphon_receiving(self.syphon_out.is_receiving());
         ui.set_syphon_error(self.syphon_out.error().unwrap_or_default().into());
@@ -1046,6 +1074,20 @@ impl App {
             ui.set_fps(format!("{:.0} fps", self.frames as f64 / elapsed).into());
             self.frames = 0;
             self.fps_since = Instant::now();
+        }
+        let fps = ui.get_fps();
+        let render_time = format!("{:.1} ms", self.render_ms);
+        let passes = format!("{}", self.render_passes);
+        let drops = format!("{} / sec", self.dropped_frames);
+        ui.set_performance_fps(fps.clone());
+        ui.set_performance_render_time(render_time.clone().into());
+        ui.set_performance_passes(passes.clone().into());
+        ui.set_performance_drops(drops.clone().into());
+        ui.set_performance_mode(self.performance_mode);
+        ui.set_performance_thumbnails(self.performance_thumbnails);
+        ui.set_performance_telemetry(format!("{} · {} · {} passes", fps, render_time, passes).into());
+        if elapsed >= 1.0 {
+            self.dropped_frames = 0;
         }
         self.sync(ui, out);
         ui.window().request_redraw();
@@ -2709,6 +2751,21 @@ impl App {
         }
     }
 
+    /// Applies the UI performance profile. The render timer in main.rs owns
+    /// the actual cadence; this state keeps Settings and telemetry in sync.
+    pub fn performance_mode_picked(&mut self, mode: i32) {
+        self.performance_mode = mode.clamp(0, 2);
+        self.engine.set_preview_interval(match self.performance_mode {
+            0 => 1.0 / 15.0,
+            1 => 1.0 / 30.0,
+            _ => 0.0,
+        });
+    }
+
+    pub fn performance_thumbnails_toggled(&mut self) {
+        self.performance_thumbnails = !self.performance_thumbnails;
+    }
+
     /// Keeps the library in step with the folders, renders missing thumbnails in the
     /// background and saves `library.json` after changes.
     fn update_library(&mut self, dt: f32) {
@@ -2726,7 +2783,7 @@ impl App {
             }
         }
         let over_budget = self.frame_time > crate::library::THUMB_FRAME_BUDGET.as_secs_f32();
-        self.library.thumbs.pump(&mut self.engine, over_budget);
+        self.library.thumbs.pump(&mut self.engine, over_budget || !self.performance_thumbnails);
         self.library.save_if_due();
         for id in self.library.thumbs.take_updated() {
             if let Some(path) = self.library.thumbs.path(&id) {

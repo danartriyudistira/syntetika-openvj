@@ -1,14 +1,18 @@
-# openVJ
+# Syntetika OpenVJ
 
-An open-source, layer-based VJ mixer: a clip grid, stacked layers with blend modes, live shader generators and video loops, all mixed on the GPU. Think Resolume, but open. Written in Rust with [wgpu](https://wgpu.rs) and [Slint](https://slint.dev).
+Syntetika OpenVJ is an open-source, layer-based VJ mixer: a clip grid, stacked layers with blend modes, live shader generators and video loops, all mixed on the GPU. It is based on the openVJ project and written in Rust with [wgpu](https://wgpu.rs) and [Slint](https://slint.dev).
 
 > **Version 0.1.0**, the first release. It's young: expect rough edges, and file formats may still change before 1.0. See [what's new](CHANGELOG.md) and the [known limits](#known-limits).
 
 ## Download
 
-**[Download openVJ for macOS](https://github.com/openwave-studio/openvj/releases/latest)** (Apple Silicon, macOS 11 or later): unzip it and drag **openVJ.app** to Applications. FFmpeg and Syphon are built in, so videos, cameras and Syphon work without installing anything else. The first time a camera clip plays or you turn on **AUDIO**, macOS asks for camera or microphone access.
+**Windows development build:** after installing Rust and the required native build tools, run `cargo run --release -p openvj-app --no-default-features --features camera`. The executable is `target/release/syntetika-openvj.exe`.
 
-Linux and Windows have no download yet: [build from source](#building-from-source).
+On Windows, Syntetika defaults to 30 FPS for integrated Intel graphics. Set `SYNTHETIKA_FPS=45` or `SYNTHETIKA_FPS=60` before launching when the composition has enough performance headroom.
+
+The original macOS build remains available through the upstream project. Syntetika's first distribution target is Windows.
+
+See [building from source](#building-from-source) for platform details.
 
 ![openVJ](docs/screenshot.png)
 

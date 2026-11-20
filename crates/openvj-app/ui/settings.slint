@@ -266,6 +266,13 @@ export component SettingsOverlay inherits Rectangle {
     // Media.
     in property <string> media-folder;
     in property <int> missing-media;
+    // Performance.
+    in property <int> performance-mode;
+    in property <string> performance-fps;
+    in property <string> performance-render-time;
+    in property <string> performance-passes;
+    in property <string> performance-drops;
+    in property <bool> performance-thumbnails;
 
     callback audio-toggle();
     callback audio-pick(int);
@@ -279,6 +286,8 @@ export component SettingsOverlay inherits Rectangle {
     callback syphon-toggle();
     callback choose-folder();
     callback relink-media();
+    callback performance-mode-picked(int);
+    callback performance-thumbnails-toggled();
     callback closed();
 
     // Page names, and the words a search finds each page by.
@@ -288,6 +297,7 @@ export component SettingsOverlay inherits Rectangle {
         { name: "Output", words: "output window fullscreen screen projector display syphon share apps mapping advanced slices masks warp resolume test card" },
         { name: "Media", words: "media folder files browser relink missing shadertoy api key import" },
         { name: "Keyboard", words: "keyboard shortcuts keys" },
+        { name: "Performance", words: "performance fps frame rate gpu render passes dropped frames thumbnails eco balanced quality" },
         { name: "About", words: "about version license licence credits syphon ffmpeg ghost arcade fonts help" },
     ];
     property <bool> searching: root.query != "";
@@ -456,7 +466,7 @@ export component SettingsOverlay inherits Rectangle {
                             alignment: start;
                             PrefRow {
                                 title: "Ableton Link";
-                                detail: !root.link-available ? "This build of openVJ was made without Link."
+                                detail: !root.link-available ? "This build of Syntetika was made without Link."
                                     : root.link-on ? "Sharing tempo with " + root.link-peers + (root.link-peers == 1 ? " peer." : " peers.")
                                     : "Follow the tempo of other Link apps on the network.";
                                 Switch {
@@ -523,9 +533,9 @@ export component SettingsOverlay inherits Rectangle {
                                 title: "Syphon output";
                                 detail: !root.syphon-available ? "Syphon is only available on macOS."
                                     : root.syphon-error != "" ? "Syphon couldn't start: " + root.syphon-error
-                                    : !root.syphon-on ? "Off. Other apps can't see openVJ."
+                                    : !root.syphon-on ? "Off. Other apps can't see Syntetika."
                                     : root.syphon-receiving ? "An app is receiving the composition now."
-                                    : "Other Syphon apps can pick openVJ as a source. Nothing is sent until one does.";
+                                    : "Other Syphon apps can pick Syntetika as a source. Nothing is sent until one does.";
                                 Switch {
                                     on: root.syphon-on;
                                     enabled: root.syphon-available;
@@ -613,11 +623,11 @@ export component SettingsOverlay inherits Rectangle {
                             Shortcut { title: "Output fullscreen (in the output window)"; key: "F"; }
                         }
 
-                        if root.page == 5: VerticalLayout {
+                        if root.page == 6: VerticalLayout {
                             alignment: start;
                             spacing: 8px;
                             Text {
-                                text: "openVJ";
+                                        text: "Syntetika OpenVJ";
                                 color: Theme.text;
                                 font-family: Theme.brand-font;
                                 font-size: 24px;
@@ -628,7 +638,7 @@ export component SettingsOverlay inherits Rectangle {
                                 font-size: Theme.font-normal;
                             }
                             Text {
-                                text: "A free, open VJ app. GPL-3.0-or-later. github.com/openwave-studio/openvj";
+                                        text: "A free, open VJ app. GPL-3.0-or-later. Syntetika OpenVJ";
                                 color: Theme.text-dim;
                                 font-size: Theme.font-normal;
                                 wrap: word-wrap;
@@ -648,6 +658,34 @@ export component SettingsOverlay inherits Rectangle {
                                 color: Theme.text-dim;
                                 font-size: 11px;
                                 wrap: word-wrap;
+                            }
+                        }
+                        if root.page == 5: VerticalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            PrefHeading { text: "PERFORMANCE MODE"; }
+                            PrefRow {
+                                title: "Render quality and frame rate";
+                                detail: "Eco is recommended for Intel integrated graphics. Changes apply immediately.";
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    SettingsButton { text: "Eco · 30"; primary: root.performance-mode == 0; clicked => { root.performance-mode-picked(0); } }
+                                    SettingsButton { text: "Balanced · 45"; primary: root.performance-mode == 1; clicked => { root.performance-mode-picked(1); } }
+                                    SettingsButton { text: "Quality · 60"; primary: root.performance-mode == 2; clicked => { root.performance-mode-picked(2); } }
+                                }
+                            }
+                            PrefHeading { text: "LIVE TELEMETRY"; }
+                            PrefRow { title: "Actual FPS"; detail: root.performance-fps; }
+                            PrefRow { title: "Render time"; detail: root.performance-render-time; }
+                            PrefRow { title: "Render passes"; detail: root.performance-passes; }
+                            PrefRow { title: "Dropped frames"; detail: root.performance-drops; }
+                            PrefRow {
+                                title: "Live thumbnails";
+                                detail: "Background thumbnails consume GPU time while a show is running.";
+                                Switch {
+                                    on: root.performance-thumbnails;
+                                    toggled => { root.performance-thumbnails-toggled(); }
+                                }
                             }
                         }
                     }

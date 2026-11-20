@@ -1,4 +1,4 @@
-//! openVJ: an open-source, layer-based VJ mixer.
+//! Syntetika OpenVJ: an open-source, layer-based VJ mixer.
 
 mod app;
 mod browser;
@@ -19,7 +19,9 @@ mod syphon_out;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use openvj_core::Composition;
@@ -32,14 +34,29 @@ slint::include_modules!();
 
 /// Creates the GPU device shared by the engine and the UI renderer.
 fn init_gpu() -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    // Vulkan is unstable on some Intel Windows drivers and can terminate the
+    // process before Slint has a chance to report an error. DX12 is the native
+    // Windows path and is also the backend that Slint uses most reliably.
+    // Keep WGPU_BACKEND available as an explicit troubleshooting override.
+    #[cfg(target_os = "windows")]
+    let descriptor = if std::env::var_os("WGPU_BACKEND").is_some() {
+        wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+    } else {
+        wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        }
+    };
+    #[cfg(not(target_os = "windows"))]
+    let descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    let instance = wgpu::Instance::new(descriptor);
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         ..Default::default()
     }))
     .context("no GPU adapter found")?;
     let info = adapter.get_info();
-    eprintln!("openVJ: GPU {} ({:?})", info.name, info.backend);
+        eprintln!("Syntetika OpenVJ: GPU {} ({:?})", info.name, info.backend);
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("openVJ"),
         // DXV and HAP frames are uploaded block-compressed when the GPU can sample BC.
@@ -66,18 +83,26 @@ fn with_app(
 }
 
 fn comp_dialog() -> rfd::FileDialog {
-    rfd::FileDialog::new().add_filter("openVJ composition", &["json"]).set_title("openVJ composition")
+    rfd::FileDialog::new().add_filter("Syntetika composition", &["json"]).set_title("Syntetika composition")
 }
 
 fn playlist_dialog() -> rfd::FileDialog {
     rfd::FileDialog::new().add_filter("openVJ playlist", &[openvj_core::PLAYLIST_EXTENSION])
 }
 
-/// Opens openVJ compositions and imports Resolume ones.
+fn default_target_fps() -> u32 {
+    std::env::var("SYNTHETIKA_FPS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|fps| (15..=60).contains(fps))
+        .unwrap_or(if cfg!(target_os = "windows") { 30 } else { 60 })
+}
+
+/// Opens Syntetika compositions and imports Resolume ones.
 fn open_dialog() -> rfd::FileDialog {
     rfd::FileDialog::new()
         .add_filter("Compositions", &["json", "avc"])
-        .add_filter("openVJ composition", &["json"])
+        .add_filter("Syntetika composition", &["json"])
         .add_filter("Resolume composition", &["avc"])
         .set_title("Open composition")
 }
@@ -435,6 +460,17 @@ fn main() -> Result<()> {
     on!(on_syphon_toggle, |a| a.syphon_toggle());
     on!(on_midi_toggle, |a| a.midi_toggle());
     on!(on_midi_clear, |a| a.midi_clear());
+    let fps_control = Arc::new(AtomicU32::new(default_target_fps()));
+    {
+        let fps_control = fps_control.clone();
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_performance_mode_picked(move |mode| {
+            let mode = mode.clamp(0, 2);
+            fps_control.store([30, 45, 60][mode as usize], Ordering::Relaxed);
+            with_app(&app, &w, &o, |a| a.performance_mode_picked(mode));
+        });
+    }
+    on!(on_performance_thumbnails_toggled, |a| a.performance_thumbnails_toggled());
     on!(on_clip_renamed, |a, t: slint::SharedString| a.clip_renamed(&t));
     on!(on_clip_remove, |a| a.clip_remove());
     on!(on_clip_restart, |a| a.clip_restart());
@@ -819,6 +855,10 @@ fn main() -> Result<()> {
 
     // Render loop.
     let timer = Timer::default();
+    // Intel integrated GPUs benefit substantially from avoiding redundant
+    // render submissions. Windows defaults to 30 FPS; users can opt into
+    // 45/60 FPS with SYNTHETIKA_FPS when running lighter compositions.
+    let mut last_render = Instant::now();
     {
         let (app, w, o) = (app.clone(), w.clone(), o.clone());
         let snapshot = std::env::var_os("OPENVJ_SNAPSHOT").map(PathBuf::from);
@@ -826,6 +866,12 @@ fn main() -> Result<()> {
         let mut screen_outputs = app::ScreenOutputs::default();
         timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
             let (Some(ui), Some(out)) = (w.upgrade(), o.upgrade()) else { return };
+            let now = Instant::now();
+            let frame_interval = Duration::from_secs_f64(1.0 / fps_control.load(Ordering::Relaxed).max(15) as f64);
+            if now.duration_since(last_render) < frame_interval {
+                return;
+            }
+            last_render = now;
             if let Ok(mut a) = app.try_borrow_mut() {
                 a.frame(&ui, &out);
                 a.sync_screen_outputs(&ui, &out, &mut screen_outputs);

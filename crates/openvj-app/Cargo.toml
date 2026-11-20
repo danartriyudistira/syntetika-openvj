@@ -1,12 +1,12 @@
 [package]
 name = "openvj-app"
-description = "openVJ desktop app"
+description = "Syntetika OpenVJ desktop application"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "openvj"
+name = "syntetika-openvj"
 path = "src/main.rs"
 
 [features]

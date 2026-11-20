@@ -1,7 +1,5 @@
-// Colors, fonts and sizes, matched to openDJ (github.com/openwave-studio/opendj) so the
-// two apps look like one family: near-black panels, flat dark controls with thin
-// borders, Inter Tabular, Apple system colors for states, and one accent color.
-// openDJ's accent is Electric Lilac; openVJ's is cyan.
+// Syntetika OpenVJ visual theme: neutral charcoal panels, flat dark controls
+// with thin borders, Inter Tabular, and a high-visibility green accent.
 //
 // Restyle the app here rather than in the components: they read every color and
 // size from this file.
@@ -20,34 +18,35 @@ export global Theme {
     out property <string> brand-font: "Zen Dots";
 
     // The accent: the logo, active and selected things, the output.
-    out property <color> accent: #4fe6da;
+    // Syntetika green is deliberately bright against the dark performance UI.
+    out property <color> accent: #7CFF4F;
     out property <color> accent-dim: root.accent.with-alpha(0.22);
-    // A darker cyan for highlights that carry white text (openDJ's selection).
-    out property <color> selection: #149c93;
+    // A darker green for highlights that carry light text.
+    out property <color> selection: #315E3A;
     // Text drawn on the accent.
-    out property <color> on-accent: #04201e;
+    out property <color> on-accent: #081208;
 
-    // Surfaces, darkest to lightest.
-    out property <color> bg: #0e0e10;
+    // Neutral charcoal surfaces, darkest to lightest.
+    out property <color> bg: #101112;
     // Recessed wells: fader slots, text fields, monitors' surrounds.
-    out property <color> track: #0d0d0e;
+    out property <color> track: #0d0e0f;
     // Buttons and other controls at rest.
-    out property <color> panel-2: #161618;
-    out property <color> panel: #1a1a1c;
+    out property <color> panel-2: #181a1c;
+    out property <color> panel: #1e2022;
     // Hovered or selected controls and raised cards.
-    out property <color> raised: #232326;
+    out property <color> raised: #282b2e;
     // A pressed control.
-    out property <color> pressed: #2c2c2f;
+    out property <color> pressed: #33373a;
     // The chosen segment of a segmented control, and the selected settings page.
-    out property <color> chosen: #3a3a3d;
-    out property <color> border: #353538;
+    out property <color> chosen: #414549;
+    out property <color> border: #3b3f43;
     // Hairlines between areas inside a panel.
-    out property <color> separator: #28282b;
+    out property <color> separator: #2c2f32;
 
-    out property <color> text: #f2f2f7;
-    out property <color> text-dim: #8e8e93;
+    out property <color> text: #eef0f2;
+    out property <color> text-dim: #9a9ea3;
     // Captions and hints: quieter than the controls they name.
-    out property <color> text-faint: #6e6e73;
+    out property <color> text-faint: #74797e;
 
     // States, in Apple system colors as in openDJ. A playing clip lights in the accent.
     out property <color> playing: root.accent;
@@ -63,7 +62,7 @@ export global Theme {
     // Modulation sources: audio bands and tempo-synced shapes.
     out property <color> audio: #0a84ff;
     out property <color> tempo: #ffd60a;
-    out property <color> link: #30d158;
+    out property <color> link: #55D66F;
 
     // Fader caps: grey metal, as on openDJ's mixer.
     out property <brush> fader-cap: @linear-gradient(90deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%);

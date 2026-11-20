@@ -754,7 +754,7 @@ component Toolbar inherits Rectangle {
             }
         }
 
-        // Wordmark, in openDJ's typeface with the mark in the accent.
+        // Syntetika OpenVJ wordmark with the play mark in the accent.
         HorizontalLayout {
             horizontal-stretch: 0;
             spacing: 8px;
@@ -770,14 +770,14 @@ component Toolbar inherits Rectangle {
                 commands: "M 3 1 L 23 1 Q 25 1 25 3 L 25 15 Q 25 17 23 17 L 3 17 Q 1 17 1 15 L 1 3 Q 1 1 3 1 Z M 10.5 5.5 L 17 9 L 10.5 12.5 Z";
             }
             Text {
-                text: "openVJ";
+                text: "Syntetika";
                 color: Theme.text;
                 font-family: Theme.brand-font;
                 font-size: 19px;
                 vertical-alignment: center;
             }
             Text {
-                text: "alpha";
+                text: "OpenVJ";
                 color: Theme.text-faint;
                 font-size: Theme.font-small;
                 vertical-alignment: center;
@@ -1298,7 +1298,7 @@ component MidiMapBar inherits Rectangle {
 }
 
 export component MainWindow inherits Window {
-    title: "openVJ";
+    title: "Syntetika OpenVJ";
     preferred-width: 1600px;
     preferred-height: 960px;
     min-width: 1180px;
@@ -1340,6 +1340,13 @@ export component MainWindow inherits Window {
     in property <string> status;
     in property <string> app-version;
     in property <string> fps;
+    in property <string> performance-telemetry;
+    in property <int> performance-mode;
+    in property <string> performance-fps;
+    in property <string> performance-render-time;
+    in property <string> performance-passes;
+    in property <string> performance-drops;
+    in property <bool> performance-thumbnails;
 
     // Audio and tempo sync.
     in property <bool> audio-on;
@@ -1451,6 +1458,8 @@ export component MainWindow inherits Window {
     callback midi-toggle();
     callback midi-import();
     callback midi-clear();
+    callback performance-mode-picked(int);
+    callback performance-thumbnails-toggled();
 
     callback input-clicked(int);
     callback input-double-clicked(int);
@@ -2022,7 +2031,7 @@ export component MainWindow inherits Window {
                     }
                     Text {
                         horizontal-stretch: 0;
-                        text: root.fps;
+                        text: root.performance-telemetry;
                         color: Theme.text-faint;
                         font-size: 10px;
                         vertical-alignment: center;
@@ -2054,6 +2063,12 @@ export component MainWindow inherits Window {
             syphon-error: root.syphon-error;
             media-folder: root.browser-path;
             missing-media: root.missing-media;
+            performance-mode: root.performance-mode;
+            performance-fps: root.performance-fps;
+            performance-render-time: root.performance-render-time;
+            performance-passes: root.performance-passes;
+            performance-drops: root.performance-drops;
+            performance-thumbnails: root.performance-thumbnails;
             audio-toggle => { root.audio-toggle(); }
             audio-pick(i) => { root.audio-pick(i); }
             param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
@@ -2066,6 +2081,8 @@ export component MainWindow inherits Window {
             syphon-toggle => { root.syphon-toggle(); }
             choose-folder => { root.browser-choose-folder(); }
             relink-media => { root.relink-media(); }
+            performance-mode-picked(mode) => { root.performance-mode-picked(mode); }
+            performance-thumbnails-toggled => { root.performance-thumbnails-toggled(); }
             closed => { root.settings-open = false; keys.focus(); }
         }
 
@@ -2088,7 +2105,7 @@ export component MainWindow inherits Window {
 export component OutputWindow inherits Window {
     /// The output mapping screen this window shows, if any.
     in property <string> screen-name;
-    title: root.screen-name == "" ? "openVJ Output" : "openVJ Output · " + root.screen-name;
+    title: root.screen-name == "" ? "Syntetika OpenVJ Output" : "Syntetika OpenVJ Output · " + root.screen-name;
     preferred-width: 960px;
     preferred-height: 540px;
     background: #000;

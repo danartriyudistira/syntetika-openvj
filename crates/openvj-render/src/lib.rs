@@ -4,8 +4,9 @@
 //! (clip → layer effects → blend → composition effects → master),
 //! then encoded and submitted in one command buffer.
 //!
-//! Mixing and effects run in 16-bit float (`Rgba16Float`) so feedback effects and soft
-//! gradients don't band. The targets the UI shows (output, preview, thumbnails) are
+//! Mixing and effects use 16-bit float (`Rgba16Float`) on platforms with more GPU headroom.
+//! Windows uses 8-bit mixing by default for integrated Intel GPUs, reducing bandwidth and
+//! memory pressure. The targets the UI shows (output, preview, thumbnails) are
 //! `Rgba8Unorm` with `TEXTURE_BINDING | RENDER_ATTACHMENT`, which Slint imports without copies.
 //!
 //! Effects are ISF files (see `openvj_core::isf`), compiled on first use by [`isf`].
@@ -38,13 +39,18 @@ pub fn check_effect(def: &openvj_core::isf::EffectDef) -> Result<(), String> {
 
 /// Size of live clip thumbnails in the grid.
 pub const THUMB_SIZE: (u32, u32) = (192, 108);
-/// Seconds between live thumbnail refreshes (15 fps). They're small grid previews, so
+/// Seconds between live thumbnail refreshes. They're small grid previews, so
 /// redrawing them at full frame rate would spend GPU time nobody sees.
-const THUMB_INTERVAL: f64 = 1.0 / 15.0;
+const THUMB_INTERVAL: f64 = if cfg!(target_os = "windows") { 1.0 / 10.0 } else { 1.0 / 15.0 };
 /// Format of everything the UI displays.
 const LDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-/// Format of the mixing and effect targets.
-const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// Format of the mixing and effect targets. Intel UHD graphics on Windows have much less
+/// bandwidth than a discrete GPU, so 8-bit targets are the safer default there.
+const HDR: wgpu::TextureFormat = if cfg!(target_os = "windows") {
+    wgpu::TextureFormat::Rgba8Unorm
+} else {
+    wgpu::TextureFormat::Rgba16Float
+};
 /// Format of [`Engine::shared_output`], the one Syphon (and most sharing APIs) expects.
 const SHARE: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 const MODE_MASTER: u32 = 100;
@@ -355,6 +361,12 @@ pub struct Engine {
     last_passes: usize,
     /// Whether this frame's preview was already drawn from a clip on screen.
     previewed: bool,
+    /// Whether the preview target should be refreshed during this frame.
+    preview_allowed: bool,
+    /// Minimum time between standalone preview refreshes. Zero keeps the old every-frame rate.
+    preview_interval: f64,
+    preview_at: f64,
+    preview_clip: Option<ClipId>,
     /// MilkDrop engines, one per MilkDrop clip.
     milk: HashMap<ClipId, MilkClip>,
     /// This frame's audio for MilkDrop: mono samples, their rate and the Reactivity gain.
@@ -565,6 +577,10 @@ impl Engine {
             thumbs_at: None,
             last_passes: 0,
             previewed: false,
+            preview_allowed: true,
+            preview_interval: 0.0,
+            preview_at: f64::NEG_INFINITY,
+            preview_clip: None,
             milk: HashMap::new(),
             pcm: Vec::new(),
             pcm_rate: 48_000,
@@ -591,6 +607,12 @@ impl Engine {
 
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+
+    /// Limits the standalone preview refresh rate while leaving the main output untouched.
+    pub fn set_preview_interval(&mut self, seconds: f64) {
+        self.preview_interval = seconds.max(0.0);
+        self.preview_at = f64::NEG_INFINITY;
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -1182,7 +1204,7 @@ impl Engine {
                 passes.push(Self::blend_pass(target, &src, &src, MODE_MIX, 0.0));
             }
         }
-        if preview == Some(clip.id) && !self.previewed {
+        if self.preview_allowed && preview == Some(clip.id) && !self.previewed {
             passes.push(Self::blend_pass(&t.preview, target, target, MODE_MIX, 0.0));
             self.previewed = true;
         }
@@ -1331,7 +1353,17 @@ impl Engine {
 
     pub fn render(&mut self, comp: &Composition, now: f64, inputs: &ModInputs, preview: Option<ClipId>) {
         // An auditioned library item takes the Preview from the selected clip.
-        let preview = if self.audition.is_some() { None } else { preview };
+        let auditioning = self.audition.is_some();
+        let preview = if auditioning { None } else { preview };
+        let preview_changed = preview != self.preview_clip;
+        self.preview_clip = preview;
+        self.preview_allowed = auditioning
+            || preview_changed
+            || self.preview_interval == 0.0
+            || now - self.preview_at >= self.preview_interval;
+        if self.preview_allowed {
+            self.preview_at = now;
+        }
         let thumbs_before = self.thumbs.len();
         for clip in comp.all_clips() {
             if clip.source.is_generator() || clip.source.is_live() {
@@ -1440,7 +1472,7 @@ impl Engine {
             self.draw_clip(&mut passes, &t, &clip, time, &t.clip_a, now, inputs, None, 1);
             passes.push(Self::blend_pass(&t.preview, &t.clip_a, &t.clip_a, MODE_MIX, 0.0));
             self.audition = Some((clip, Some(started)));
-        } else if !self.previewed {
+        } else if self.preview_allowed && !self.previewed {
             match preview.and_then(|id| comp.find_clip(id)).and_then(|(l, c)| comp.clip(l, c)) {
                 Some(clip) => {
                     let time = clip_time(comp, clip, now, inputs.beat);
