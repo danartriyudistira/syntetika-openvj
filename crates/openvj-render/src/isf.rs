@@ -701,8 +701,10 @@ mod tests {
     #[test]
     fn readme_example_compiles() {
         let readme = include_str!("../../../README.md");
-        let start = readme.find("```glsl\n").expect("README has a GLSL example") + 8;
-        let src = &readme[start..start + readme[start..].find("```").unwrap()];
+        let marker = "```glsl";
+        let start = readme.find(marker).expect("README has a GLSL example") + marker.len();
+        let src = readme[start..].trim_start_matches(['\r', '\n']);
+        let src = &src[..src.find("```").expect("README GLSL example is closed")];
         let def = EffectDef::parse(src, "readme").unwrap();
         parse(&def).unwrap_or_else(|e| panic!("{e}"));
     }
