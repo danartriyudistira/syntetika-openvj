@@ -11,7 +11,7 @@ Syntetika bukan salinan kode, aset, atau identitas proprietary Resolume. Dukunga
 - Backend GPU Windows: **DirectX 12**
 - GPU target awal: Intel UHD integrated graphics
 - Lisensi: **GPL-3.0-or-later**
-- Belum tersedia installer Windows resmi
+- Belum tersedia installer Windows resmi; distribusi saat ini berupa portable ZIP
 
 ## Fitur yang tersedia
 
@@ -76,15 +76,15 @@ Nilai yang didukung: `30`, `45`, dan `60`.
 
 ## FFmpeg
 
-Video H.264, HEVC, ProRes, WebM, dan format umum lainnya membutuhkan FFmpeg. Syntetika menjalankan FFmpeg sebagai proses decoder terpisah.
+Release Windows portable menyertakan `ffmpeg.exe` dan `ffprobe.exe` di folder yang sama dengan aplikasi. Syntetika menjalankan FFmpeg sebagai proses decoder terpisah, sehingga executable utama tetap GPL-3.0-or-later dan binary FFmpeg mengikuti LGPL-nya sendiri.
 
-Jika FFmpeg tidak tersedia di `PATH`, gunakan:
+Build dari source atau pengguna yang memakai paket tanpa FFmpeg dapat mengatur:
 
 ```powershell
 $env:OPENVJ_FFMPEG_DIR="C:\path\to\ffmpeg\bin"
 ```
 
-DXV dan HAP menggunakan decoder internal jika GPU mendukung block-compressed textures.
+DXV dan HAP menggunakan decoder internal jika GPU mendukung block-compressed textures. Lisensi FFmpeg Windows tersedia di `FFmpeg-LICENSE.txt` pada paket release.
 
 ## Contoh efek ISF
 
@@ -132,7 +132,7 @@ void main() {
 - Parameter animation/envelope/dashboard belum selesai.
 - Import `.avc` dapat melewati Wire patch, text generator, NDI, router tertentu, effect yang tidak memiliki padanan, dan sebagian transform 3D.
 - Linear dan Bezier grid warp dari preset Resolume dapat diimport tetapi belum seluruhnya dapat diedit.
-- Belum ada installer Windows atau FFmpeg bundled untuk distribusi Windows.
+- Belum ada installer Windows; distribusi saat ini berupa portable ZIP.
 
 ## Pengujian
 

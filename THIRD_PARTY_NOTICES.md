@@ -22,6 +22,16 @@ grant). openVJ runs them as separate programs. The licence texts, the exact conf
 the source offer are in `Contents/Resources/ThirdParty/FFmpeg/`. FFmpeg is a trademark of Fabrice
 Bellard.
 
+## FFmpeg (Windows portable release)
+
+The Windows portable release includes `ffmpeg.exe` and `ffprobe.exe` from the
+[BtbN FFmpeg Builds](https://github.com/BtbN/FFmpeg-Builds) LGPL Windows build
+(`ffmpeg-n8.1-latest-win64-lgpl-8.1.zip`). They run as separate processes under the
+GNU Lesser General Public License version 3 or later. The accompanying license is included
+in [packaging/licenses/FFmpeg-LICENSE.txt](packaging/licenses/FFmpeg-LICENSE.txt) and copied as
+`FFmpeg-LICENSE.txt` into the portable release. The build source and binary distribution are
+available from the linked project.
+
 ## Ghost Arcade ISF shaders
 
 The 364 shaders in [shaders/ghost-arcade](shaders/ghost-arcade) come from
