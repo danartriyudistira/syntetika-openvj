@@ -88,6 +88,9 @@ pub fn tool_path(tool: &str) -> PathBuf {
         dirs.push(dir.into());
     }
     if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(PathBuf::from)) {
+        // Portable Windows releases keep the large FFmpeg binaries in a
+        // sibling `ffmpeg` directory so launching the EXE directly works too.
+        dirs.push(dir.join("ffmpeg"));
         dirs.push(dir);
     }
     if let Some(path) = std::env::var_os("PATH") {
