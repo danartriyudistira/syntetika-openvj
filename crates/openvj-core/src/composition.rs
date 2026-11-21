@@ -53,6 +53,14 @@ pub struct MidiRoll {
     pub loop_end: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<MidiNote>,
+    /// Show only the pitches this roll uses.
+    #[serde(default)]
+    pub fold: bool,
+    /// Scale assist: root note (0 = C) and scale kind (0 = off).
+    #[serde(default)]
+    pub scale_root: u8,
+    #[serde(default)]
+    pub scale_kind: u8,
 }
 
 fn default_midi_bars() -> u32 { 1 }
@@ -70,6 +78,9 @@ impl Default for MidiRoll {
             loop_start: 0,
             loop_end: default_midi_loop_end(),
             notes: Vec::new(),
+            fold: false,
+            scale_root: 0,
+            scale_kind: 0,
         }
     }
 }

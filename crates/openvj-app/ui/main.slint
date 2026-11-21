@@ -1,6 +1,6 @@
 import { LineEdit, ScrollView, ListView } from "std-widgets.slint";
 import { Theme, CloseIcon } from "theme.slint";
-import { Scope, ModNames, AudioLevels, MidiLearn, ParamData, MidiNoteData, EffectData, CellData, LayerData, ColumnData, DeckData, BrowserItem } from "state.slint";
+import { Scope, ModNames, AudioLevels, MidiLearn, ParamData, MidiNoteData, MidiRowData, EffectData, CellData, LayerData, ColumnData, DeckData, BrowserItem } from "state.slint";
 import { Fader, ToggleButton, FlatButton, BlendPicker, PanelTitle, Monitor, BandMeters, MidiSpot } from "controls.slint";
 import { PropertiesPanel } from "properties.slint";
 import { TabButton } from "controls.slint";
@@ -1432,6 +1432,10 @@ export component MainWindow inherits Window {
     in property <float> midi-loop-end;
     in property <float> midi-playhead;
     in property <bool> midi-playing;
+    in property <[MidiRowData]> midi-rows;
+    in property <bool> midi-fold;
+    in property <int> midi-scale-root;
+    in property <int> midi-scale-kind;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1518,6 +1522,9 @@ export component MainWindow inherits Window {
     callback midi-roll-velocity-begin(float);
     callback midi-roll-velocity-set(float, int);
     callback midi-roll-note-resize-begin(int);
+    callback midi-roll-fold-toggled();
+    callback midi-roll-scale-root-picked(int);
+    callback midi-roll-scale-kind-picked(int);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1985,6 +1992,10 @@ export component MainWindow inherits Window {
                      midi-loop-end: root.midi-loop-end;
                      midi-playhead: root.midi-playhead;
                      midi-playing: root.midi-playing;
+                     midi-rows: root.midi-rows;
+                     midi-fold: root.midi-fold;
+                     midi-scale-root: root.midi-scale-root;
+                     midi-scale-kind: root.midi-scale-kind;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -2029,6 +2040,9 @@ export component MainWindow inherits Window {
                      midi-roll-velocity-begin(b) => { root.midi-roll-velocity-begin(b); }
                      midi-roll-velocity-set(b, v) => { root.midi-roll-velocity-set(b, v); }
                      midi-roll-note-resize-begin(i) => { root.midi-roll-note-resize-begin(i); }
+                     midi-roll-fold-toggled => { root.midi-roll-fold-toggled(); }
+                     midi-roll-scale-root-picked(i) => { root.midi-roll-scale-root-picked(i); }
+                     midi-roll-scale-kind-picked(i) => { root.midi-roll-scale-kind-picked(i); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }

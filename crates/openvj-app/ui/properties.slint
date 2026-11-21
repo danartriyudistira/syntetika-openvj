@@ -3,7 +3,7 @@
 
 import { LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Scope, ParamData, EffectData, AudioLevels, MidiNoteData } from "state.slint";
+import { Scope, ParamData, EffectData, AudioLevels, MidiNoteData, MidiRowData } from "state.slint";
 import { FlatButton, ToggleButton, TabButton, BlendPicker, PanelTitle, ModParam, ParamBar, BandMeters } from "controls.slint";
 import { Shadertoy } from "shadertoy.slint";
 import { Drag } from "drag.slint";
@@ -222,6 +222,10 @@ component PianoRollEditor inherits Rectangle {
     in property <float> loop-end;
     in property <float> playhead;
     in property <bool> playing;
+    in property <[MidiRowData]> rows;
+    in property <bool> fold;
+    in property <int> scale-root;
+    in property <int> scale-kind;
     callback enabled-toggled();
     callback device-picked(int);
     callback channel-picked(int);
@@ -241,6 +245,9 @@ component PianoRollEditor inherits Rectangle {
     callback velocity-begin(float);
     callback velocity-set(float, int);
     callback note-resize-begin(int);
+    callback fold-toggled();
+    callback scale-root-picked(int);
+    callback scale-kind-picked(int);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -248,6 +255,11 @@ component PianoRollEditor inherits Rectangle {
 
     pure function velocity-at(y: length, h: length) -> int {
         return round(clamp((1.0 - y / h) * 127.0, 1.0, 127.0));
+    }
+
+    // Grid row under a pointer y, clamped to the visible rows.
+    pure function row-at(y: length, count: int) -> int {
+        return min(max(round(y / 10px), 0), count - 1);
     }
 
     VerticalLayout {
@@ -283,6 +295,18 @@ component PianoRollEditor inherits Rectangle {
             Text { text: "Loop"; color: Theme.text-dim; vertical-alignment: center; }
             Text { text: root.loop-start + " – " + root.loop-end; color: Theme.text; vertical-alignment: center; }
             FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            FlatButton { text: "Fold"; active: root.fold; clicked => { root.fold-toggled(); } }
+            BlendPicker {
+                modes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                current: root.scale-root;
+                picked(i) => { root.scale-root-picked(i); }
+            }
+            BlendPicker {
+                modes: ["Off", "Major", "Minor", "Dorian", "Mixolydian", "Pent Minor", "Blues"];
+                current: root.scale-kind;
+                picked(i) => { root.scale-kind-picked(i); }
+            }
         }
         Text {
             text: "Click = add · drag empty = marquee · Ctrl+A all · Del remove · Ctrl+C/V/D · Ctrl+Z/Y undo/redo";
@@ -291,16 +315,18 @@ component PianoRollEditor inherits Rectangle {
         }
         grid-flick := Flickable {
             vertical-stretch: 1;
-            content-height: 1280px;
+            content-height: max(40px, root.rows.length * 10px);
             Rectangle {
                 width: max(parent.width, root.bars * 128px + 80px);
-                height: 1280px;
+                height: max(40px, root.rows.length * 10px);
                 background: Theme.bg;
-                for row[i] in 128: Rectangle {
+                for row[i] in root.rows: Rectangle {
                     y: i * 10px;
                     height: 10px;
                     width: parent.width;
-                    background: Math.mod(i, 12) == 1 || Math.mod(i, 12) == 3 || Math.mod(i, 12) == 6 || Math.mod(i, 12) == 8 || Math.mod(i, 12) == 10 ? #15181b : transparent;
+                    background: !row.in-scale
+                        ? (row.black ? #0a0c0e : #0d0f11)
+                        : row.black ? #15181b : transparent;
                     border-width: 1px;
                     border-color: Theme.separator;
                 }
@@ -325,11 +351,13 @@ component PianoRollEditor inherits Rectangle {
                                 let x2 = max(press-x, self.mouse-x);
                                 let y1 = min(press-y, self.mouse-y);
                                 let y2 = max(press-y, self.mouse-y);
-                                root.marquee-selected(x1 / 32px, x2 / 32px, 127 - floor(y2 / 10px), 127 - floor(y1 / 10px), additive);
+                                let p1 = root.rows[root.row-at(y2, root.rows.length)].pitch;
+                                let p2 = root.rows[root.row-at(y1, root.rows.length)].pitch;
+                                root.marquee-selected(x1 / 32px, x2 / 32px, min(p1, p2), max(p1, p2), additive);
                             } else {
-                                let pitch = clamp(127 - floor(self.mouse-y / 10px), 0, 127);
+                                let row = root.row-at(self.mouse-y, root.rows.length);
                                 let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
-                                root.add-note(pitch, beat);
+                                root.add-note(root.rows[row].pitch, beat);
                             }
                             marquee = false;
                         }
@@ -354,7 +382,7 @@ component PianoRollEditor inherits Rectangle {
                     property <float> drag-length: note.length;
                     property <bool> dragged: false;
                     x: note.start * 32px;
-                    y: (127 - note.pitch) * 10px;
+                    y: note.row * 10px;
                     width: max(6px, note.length * 32px);
                     height: 8px;
                     border-radius: 2px;
@@ -417,6 +445,28 @@ component PianoRollEditor inherits Rectangle {
                     height: parent.height;
                     background: Theme.playing;
                 }
+            }
+        }
+        // Minimap: the whole roll, with the playhead.
+        Rectangle {
+            height: 30px;
+            clip: true;
+            background: #0d0f11;
+            border-width: 1px;
+            border-color: Theme.separator;
+            for note in root.notes: Rectangle {
+                x: (note.start / max(1.0, root.bars * 4.0)) * parent.width;
+                width: max(1px, (note.length / max(1.0, root.bars * 4.0)) * parent.width);
+                y: max(0px, (1.0 - (note.row + 1) / max(1.0, root.rows.length * 1.0)) * (parent.height - 3px));
+                height: 2px;
+                background: note.selected ? Theme.selection : Theme.accent.with-alpha(0.7);
+            }
+            Rectangle {
+                visible: root.playing;
+                x: (root.playhead / max(1.0, root.bars * 4.0)) * parent.width;
+                width: 1px;
+                height: parent.height;
+                background: Theme.playing;
             }
         }
         // Velocity lane: bars mirror each note's velocity. Drag to edit the
@@ -538,6 +588,10 @@ export component PropertiesPanel inherits Rectangle {
     in property <float> midi-loop-end;
     in property <float> midi-playhead;
     in property <bool> midi-playing;
+    in property <[MidiRowData]> midi-rows;
+    in property <bool> midi-fold;
+    in property <int> midi-scale-root;
+    in property <int> midi-scale-kind;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -584,6 +638,9 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-velocity-begin(float);
     callback midi-roll-velocity-set(float, int);
     callback midi-roll-note-resize-begin(int);
+    callback midi-roll-fold-toggled();
+    callback midi-roll-scale-root-picked(int);
+    callback midi-roll-scale-kind-picked(int);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1115,6 +1172,10 @@ export component PropertiesPanel inherits Rectangle {
             loop-end: root.midi-loop-end;
             playhead: root.midi-playhead;
             playing: root.midi-playing;
+            rows: root.midi-rows;
+            fold: root.midi-fold;
+            scale-root: root.midi-scale-root;
+            scale-kind: root.midi-scale-kind;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
@@ -1133,6 +1194,9 @@ export component PropertiesPanel inherits Rectangle {
             velocity-begin(b) => { root.midi-roll-velocity-begin(b); }
             velocity-set(b, v) => { root.midi-roll-velocity-set(b, v); }
             note-resize-begin(i) => { root.midi-roll-note-resize-begin(i); }
+            fold-toggled => { root.midi-roll-fold-toggled(); }
+            scale-root-picked(i) => { root.midi-roll-scale-root-picked(i); }
+            scale-kind-picked(i) => { root.midi-roll-scale-kind-picked(i); }
         }
     }
 }

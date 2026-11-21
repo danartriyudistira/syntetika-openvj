@@ -68,9 +68,18 @@ export struct MidiNoteData {
     index: int,
     selected: bool,
     pitch: int,
+    /// Visible grid row, after fold.
+    row: int,
     start: float,
     length: float,
     velocity: int,
+}
+
+/// One visible grid row. A folded roll lists only the pitches in use.
+export struct MidiRowData {
+    pitch: int,
+    black: bool,
+    in-scale: bool,
 }
 
 export struct EffectData {

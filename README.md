@@ -26,7 +26,7 @@ Syntetika bukan salinan kode, aset, atau identitas proprietary Resolume. Dukunga
 - Blend mode, opacity, bypass, solo, transform, crossfade, dan feedback
 - Playback Loop, Bounce, Random, Play Once, Toggle, dan Piano
 - Beat sync, BPM, audio FFT, audio-reactive mapping, serta MIDI input
-- Piano Roll MIDI per clip: velocity lane, marquee select, geser banyak note, undo/redo, copy/paste/duplicate, dan playhead
+- Piano Roll MIDI per clip: velocity lane, marquee select, geser banyak note, undo/redo, copy/paste/duplicate, playhead, fold, scale assist, dan minimap
 - Import komposisi Resolume `.avc` secara parsial
 - Output fullscreen dan dasar projection mapping
 - Preview dan output monitor
@@ -133,6 +133,10 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | `Delete` | Hapus note terpilih |
 | `Ctrl+C` / `Ctrl+V` / `Ctrl+D` | Copy / paste di playhead / duplicate |
 | `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` | Undo / redo |
+| Tombol `Fold` | Tampilkan hanya pitch yang dipakai clip |
+| Picker `Key` + `Scale` | Sorot baris yang masuk skala; baris di luar skala diredupkan |
+
+Minimap di bawah grid menampilkan seluruh roll beserta posisi playhead.
 
 Paste dan duplicate memakai posisi playhead clip, dibulatkan ke grid 1/16, dan note yang melewati batas bar dilewati.
 
@@ -146,7 +150,7 @@ Paste dan duplicate memakai posisi playhead clip, dibulatkan ke grid 1/16, dan n
 - Spout belum tersedia pada Windows.
 - NDI input/output belum tersedia.
 - MIDI LED feedback belum tersedia.
-- Piano Roll belum memiliki fold, scale assist, dan minimap.
+- Piano Roll belum memiliki quantize otomatis dan time-stretch.
 - Export MIDI preset ke Resolume belum tersedia.
 - Mapping parameter clip, clip effect, group control, Synthesis knob, dan macro belum lengkap.
 - Parameter animation/envelope/dashboard belum selesai.

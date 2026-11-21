@@ -35,7 +35,7 @@ use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
     AudioLevels, BrowserItem, CellData, ColumnData, DeckData, Disc, DiscParam, EffectData, LayerData, Lib, LibChip,
-    LibSideRow, LibTile, MainWindow, MappingWindow, MediaTile, MidiLearn, MidiNoteData, MilkPack, ModNames, OutputWindow, ParamData,
+    LibSideRow, LibTile, MainWindow, MappingWindow, MediaTile, MidiLearn, MidiNoteData, MidiRowData, MilkPack, ModNames, OutputWindow, ParamData,
     Pl, PresetRow, Shadertoy, SynthLayer,
 };
 
@@ -45,6 +45,44 @@ mod mapping_ui;
 pub use mapping_ui::ScreenOutputs;
 
 const _: () = assert!(BAND_COUNT == openvj_audio::BAND_COUNT, "core and audio band counts differ");
+
+/// Scale intervals in semitones, by `MidiRoll::scale_kind`. Index 0 is "off".
+const MIDI_SCALES: [&[u8]; 7] = [
+    &[],
+    &[0, 2, 4, 5, 7, 9, 11], // Major
+    &[0, 2, 3, 5, 7, 8, 10], // Natural minor
+    &[0, 2, 3, 5, 7, 9, 10], // Dorian
+    &[0, 2, 4, 5, 7, 9, 10], // Mixolydian
+    &[0, 3, 5, 7, 10],       // Minor pentatonic
+    &[0, 3, 5, 6, 7, 10],    // Blues
+];
+
+fn midi_pitch_black(pitch: u8) -> bool {
+    matches!(pitch % 12, 1 | 3 | 6 | 8 | 10)
+}
+
+/// Rows the Piano Roll draws, top to bottom. A folded roll lists only used pitches.
+fn midi_rows(roll: &openvj_core::MidiRoll) -> Vec<MidiRowData> {
+    let kind = (roll.scale_kind as usize).min(MIDI_SCALES.len() - 1);
+    let intervals = MIDI_SCALES[kind];
+    let root = roll.scale_root % 12;
+    let pitches: Vec<u8> = if roll.fold && !roll.notes.is_empty() {
+        let mut used: Vec<u8> = roll.notes.iter().map(|n| n.pitch).collect();
+        used.sort_unstable();
+        used.dedup();
+        used.into_iter().rev().collect()
+    } else {
+        (0..128u8).rev().collect()
+    };
+    pitches
+        .into_iter()
+        .map(|pitch| MidiRowData {
+            pitch: pitch as i32,
+            black: midi_pitch_black(pitch),
+            in_scale: kind == 0 || intervals.contains(&((pitch + 12 - root) % 12)),
+        })
+        .collect()
+}
 
 /// Where a parameter lives; must match `Scope` in state.slint. Parameters are addressed
 /// as (scope, owner, index): the owner is an effect index for the fx scopes and a layer
@@ -231,6 +269,7 @@ pub struct App {
     midi: Option<MidiPorts>,
     midi_output: MidiOutputWorker,
     midi_notes: Rc<VecModel<MidiNoteData>>,
+    midi_rows: Rc<VecModel<MidiRowData>>,
     midi_devices: Vec<String>,
     midi_device_index: usize,
     midi_selection: HashSet<usize>,
@@ -422,6 +461,7 @@ impl App {
             midi: None,
             midi_output: MidiOutputWorker::new(),
             midi_notes: Rc::new(VecModel::default()),
+            midi_rows: Rc::new(VecModel::default()),
             midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
             midi_device_index: 0,
             midi_selection: HashSet::new(),
@@ -1641,6 +1681,7 @@ impl App {
         )));
         ui.set_midi_device_index(self.midi_device_index as i32);
         ui.set_midi_notes(ModelRc::from(self.midi_notes.clone()));
+        ui.set_midi_rows(ModelRc::from(self.midi_rows.clone()));
         let source_url = match clip.map(|c| &c.source) {
             Some(ClipSource::Isf { generator }) => generator.ty().map(|t| t.def.source.clone()).unwrap_or_default(),
             _ => String::new(),
@@ -1702,16 +1743,27 @@ impl App {
             ui.set_midi_roll_grid(clip.midi_roll.grid.clamp(4, 32) as i32);
             ui.set_midi_loop_start(clip.midi_roll.loop_start as f32 / MIDI_TICKS_PER_BEAT as f32);
             ui.set_midi_loop_end(clip.midi_roll.loop_end_for_bars() as f32 / MIDI_TICKS_PER_BEAT as f32);
-            self.midi_notes.set_vec(
-                clip.midi_roll.notes.iter().enumerate().map(|(index, note)| MidiNoteData {
+            let rows = midi_rows(&clip.midi_roll);
+            let notes = clip
+                .midi_roll
+                .notes
+                .iter()
+                .enumerate()
+                .map(|(index, note)| MidiNoteData {
                     index: index as i32,
                     selected: self.midi_selection.contains(&index),
                     pitch: note.pitch as i32,
+                    row: rows.iter().position(|r| r.pitch as u8 == note.pitch).unwrap_or(0) as i32,
                     start: note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32,
                     length: note.length_ticks as f32 / MIDI_TICKS_PER_BEAT as f32,
                     velocity: note.velocity as i32,
-                }).collect::<Vec<MidiNoteData>>(),
-            );
+                })
+                .collect::<Vec<MidiNoteData>>();
+            self.midi_notes.set_vec(notes);
+            self.midi_rows.set_vec(rows);
+            ui.set_midi_fold(clip.midi_roll.fold);
+            ui.set_midi_scale_root(clip.midi_roll.scale_root.min(11) as i32);
+            ui.set_midi_scale_kind(clip.midi_roll.scale_kind.min(6) as i32);
         } else {
             ui.set_preview_label(SharedString::default());
             ui.set_midi_roll_enabled(false);
@@ -1721,6 +1773,7 @@ impl App {
             ui.set_midi_loop_start(0.0);
             ui.set_midi_loop_end(4.0);
             self.midi_notes.set_vec(Vec::new());
+            self.midi_rows.set_vec(midi_rows(&openvj_core::MidiRoll::default()));
             self.midi_selection.clear();
         }
 
@@ -2143,7 +2196,27 @@ impl App {
                             .collect(),
                         None => Vec::new(),
                     };
-                    serde_json::json!({"ok": true, "notes": notes})
+                    let view = match self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+                        Some(clip) => {
+                            let rows = midi_rows(&clip.midi_roll);
+                            let kind = (clip.midi_roll.scale_kind as usize).min(MIDI_SCALES.len() - 1);
+                            let root = clip.midi_roll.scale_root % 12;
+                            let classes: Vec<u8> = if kind == 0 {
+                                Vec::new()
+                            } else {
+                                MIDI_SCALES[kind].iter().map(|i| (i + root) % 12).collect()
+                            };
+                            serde_json::json!({
+                                "fold": clip.midi_roll.fold,
+                                "rows": rows.len(),
+                                "scale_root": root,
+                                "scale_kind": clip.midi_roll.scale_kind,
+                                "scale_pitch_classes": classes,
+                            })
+                        }
+                        None => serde_json::json!({"fold": false, "rows": 0, "scale_root": 0, "scale_kind": 0, "scale_pitch_classes": []}),
+                    };
+                    serde_json::json!({"ok": true, "notes": notes, "view": view})
                 }
                 "marquee_select" => {
                     let beat_lo = request.args.get("beat_lo").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
@@ -2177,6 +2250,17 @@ impl App {
                             self.midi_roll_velocity_begin(beat);
                             self.midi_roll_velocity_set(beat, velocity);
                             serde_json::json!({"ok": true, "beat": beat, "velocity": velocity})
+                        }
+                        "fold" => {
+                            self.midi_roll_fold_toggled();
+                            serde_json::json!({"ok": true})
+                        }
+                        "scale" => {
+                            let root = request.args.get("root").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let kind = request.args.get("kind").and_then(|v| v.as_i64()).unwrap_or(0);
+                            self.midi_roll_scale_root(root.max(0) as usize);
+                            self.midi_roll_scale_kind(kind.max(0) as usize);
+                            serde_json::json!({"ok": true, "root": root, "kind": kind})
                         }
                         _ => serde_json::json!({"ok": false, "error": "unknown midi edit op"}),
                     }
@@ -2224,6 +2308,27 @@ impl App {
     pub fn midi_roll_channel_picked(&mut self, channel: usize) {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             clip.midi_roll.channel = channel.min(15) as u8;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_fold_toggled(&mut self) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.fold = !clip.midi_roll.fold;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_scale_root(&mut self, root: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.scale_root = (root % 12) as u8;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_scale_kind(&mut self, kind: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.scale_kind = kind.min(MIDI_SCALES.len() - 1) as u8;
             self.props_dirty = true;
         }
     }

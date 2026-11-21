@@ -503,6 +503,9 @@ fn main() -> Result<()> {
     on!(on_midi_roll_note_resize_begin, |a, i: i32| a.midi_roll_note_resize_begin(i.max(0) as usize));
     on!(on_midi_roll_velocity_begin, |a, b: f32| a.midi_roll_velocity_begin(b));
     on!(on_midi_roll_velocity_set, |a, b: f32, v: i32| a.midi_roll_velocity_set(b, v));
+    on!(on_midi_roll_fold_toggled, |a| a.midi_roll_fold_toggled());
+    on!(on_midi_roll_scale_root_picked, |a, i: i32| a.midi_roll_scale_root(i.max(0) as usize));
+    on!(on_midi_roll_scale_kind_picked, |a, i: i32| a.midi_roll_scale_kind(i.max(0) as usize));
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));
