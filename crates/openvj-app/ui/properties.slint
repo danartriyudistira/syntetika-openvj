@@ -230,6 +230,7 @@ component PianoRollEditor inherits Rectangle {
     callback bars-changed(int);
     callback loop-changed(float, float);
     callback note-moved(int, float, int);
+    callback note-resized(int, float);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -297,6 +298,10 @@ component PianoRollEditor inherits Rectangle {
                     }
                 }
                 for note in root.notes: Rectangle {
+                    property <float> drag-start: note.start;
+                    property <int> drag-pitch: note.pitch;
+                    property <float> drag-length: note.length;
+                    property <bool> dragged: false;
                     x: note.start * 32px;
                     y: (127 - note.pitch) * 10px;
                     width: max(6px, note.length * 32px);
@@ -305,11 +310,37 @@ component PianoRollEditor inherits Rectangle {
                     background: Theme.accent;
                     opacity: 0.45 + note.velocity / 255.0;
                     TouchArea {
-                        clicked => { root.delete-note(note.index); }
+                        pointer-event(e) => {
+                            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                                parent.drag-start = note.start;
+                                parent.drag-pitch = note.pitch;
+                                parent.dragged = false;
+                            }
+                        }
                         moved => {
-                            let start = max(0, floor((note.start * 32px + self.mouse-x - self.pressed-x) / 32px * 32) / 32);
-                            let pitch = clamp(note.pitch - floor((self.mouse-y - self.pressed-y) / 10px), 0, 127);
+                            parent.dragged = true;
+                            let start = max(0, floor((parent.drag-start * 32px + self.mouse-x - self.pressed-x) / 32px * 32) / 32);
+                            let pitch = clamp(parent.drag-pitch - floor((self.mouse-y - self.pressed-y) / 10px), 0, 127);
                             root.note-moved(note.index, start, pitch);
+                        }
+                        double-clicked => { root.delete-note(note.index); }
+                    }
+                    Rectangle {
+                        x: max(0px, parent.width - 6px);
+                        width: 6px;
+                        height: parent.height;
+                        background: Theme.on-accent.with-alpha(0.45);
+                        TouchArea {
+                            property <float> origin: note.length;
+                            pointer-event(e) => {
+                                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                                    origin = note.length;
+                                }
+                            }
+                            moved => {
+                                let length = max(1.0 / 32.0, floor((origin * 32px + self.mouse-x - self.pressed-x) / 32px * 32) / 32);
+                                root.note-resized(note.index, length);
+                            }
                         }
                     }
                 }
@@ -435,6 +466,7 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-bars-changed(int);
     callback midi-roll-loop-changed(float, float);
     callback midi-roll-note-moved(int, float, int);
+    callback midi-roll-note-resized(int, float);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -974,6 +1006,7 @@ export component PropertiesPanel inherits Rectangle {
             bars-changed(i) => { root.midi-roll-bars-changed(i); }
             loop-changed(s, e) => { root.midi-roll-loop-changed(s, e); }
             note-moved(i, s, p) => { root.midi-roll-note-moved(i, s, p); }
+            note-resized(i, l) => { root.midi-roll-note-resized(i, l); }
         }
     }
 }
