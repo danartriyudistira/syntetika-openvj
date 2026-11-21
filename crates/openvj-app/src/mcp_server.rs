@@ -27,7 +27,8 @@ fn tools() -> Vec<Value> {
         json!({"name":"set_tempo","description":"Set composition BPM.","inputSchema":{"type":"object","properties":{"bpm":{"type":"number","minimum":20,"maximum":300}},"required":["bpm"]}}),
         json!({"name":"trigger_clip","description":"Trigger a clip using 1-based layer and column.","inputSchema":{"type":"object","properties":{"layer":{"type":"integer"},"column":{"type":"integer"}},"required":["layer","column"]}}),
         json!({"name":"select_clip","description":"Select a clip using 1-based layer and column.","inputSchema":{"type":"object","properties":{"layer":{"type":"integer"},"column":{"type":"integer"}},"required":["layer","column"]}}),
-        json!({"name":"add_midi_note","description":"Add a MIDI note to the selected clip. Start is in beats.","inputSchema":{"type":"object","properties":{"pitch":{"type":"integer","minimum":0,"maximum":127},"start":{"type":"number","minimum":0}},"required":["pitch","start"]}}),
+        json!({"name":"add_midi_note","description":"Add a MIDI note to the selected clip. Start is in beats, velocity 1-127.","inputSchema":{"type":"object","properties":{"pitch":{"type":"integer","minimum":0,"maximum":127},"start":{"type":"number","minimum":0},"velocity":{"type":"integer","minimum":1,"maximum":127}},"required":["pitch","start"]}}),
+        json!({"name":"set_midi_roll","description":"Configure MIDI Roll output of the selected clip: device, channel (0-15), enabled.","inputSchema":{"type":"object","properties":{"device":{"type":"string"},"channel":{"type":"integer","minimum":0,"maximum":15},"enabled":{"type":"boolean"}}}}),
         json!({"name":"clear_midi_roll","description":"Clear MIDI notes from the selected clip.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name":"panic_midi","description":"Send All Notes Off to MIDI outputs.","inputSchema":{"type":"object","properties":{}}}),
     ]
@@ -43,6 +44,7 @@ fn call_tool(params: &Value) -> Value {
         "trigger_clip" => "trigger_clip",
         "select_clip" => "select_clip",
         "add_midi_note" => "add_midi_note",
+        "set_midi_roll" => "set_midi_roll",
         "clear_midi_roll" => "clear_midi_roll",
         "panic_midi" => "panic_midi",
         _ => return json!({"error":{"code":-32602,"message":"unknown tool"}}),

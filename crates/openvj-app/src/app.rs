@@ -2056,8 +2056,29 @@ impl App {
                 "add_midi_note" => {
                     let pitch = request.args.get("pitch").and_then(|v| v.as_i64()).unwrap_or(60) as i32;
                     let start = request.args.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                    self.midi_roll_note_added(pitch, start);
-                    serde_json::json!({"ok": true, "pitch": pitch, "start": start})
+                    let velocity = request.args.get("velocity").and_then(|v| v.as_i64()).unwrap_or(100) as i32;
+                    self.midi_roll_note_added_vel(pitch, start, velocity);
+                    serde_json::json!({"ok": true, "pitch": pitch, "start": start, "velocity": velocity.clamp(1, 127)})
+                }
+                "set_midi_roll" => {
+                    let mut applied = serde_json::json!({"ok": true});
+                    if let Some(device) = request.args.get("device").and_then(|v| v.as_str()) {
+                        if let Some(index) = self.midi_devices.iter().position(|d| d == device) {
+                            self.midi_roll_device_picked(index);
+                            applied["device"] = device.into();
+                        } else {
+                            applied = serde_json::json!({"ok": false, "error": "unknown MIDI device"});
+                        }
+                    }
+                    if let Some(channel) = request.args.get("channel").and_then(|v| v.as_u64()) {
+                        self.midi_roll_channel_picked(channel as usize);
+                        applied["channel"] = channel.into();
+                    }
+                    if let Some(enabled) = request.args.get("enabled").and_then(|v| v.as_bool()) {
+                        self.midi_roll_enabled_set(enabled);
+                        applied["enabled"] = enabled.into();
+                    }
+                    applied
                 }
                 "clear_midi_roll" => {
                     self.midi_roll_cleared();
@@ -2080,6 +2101,13 @@ impl App {
         }
     }
 
+    pub fn midi_roll_enabled_set(&mut self, enabled: bool) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.enabled = enabled;
+            self.props_dirty = true;
+        }
+    }
+
     pub fn midi_roll_device_picked(&mut self, index: usize) {
         let Some(device) = self.midi_devices.get(index).cloned() else { return };
         self.midi_device_index = index;
@@ -2097,6 +2125,10 @@ impl App {
     }
 
     pub fn midi_roll_note_added(&mut self, pitch: i32, start: f32) {
+        self.midi_roll_note_added_vel(pitch, start, 100);
+    }
+
+    pub fn midi_roll_note_added_vel(&mut self, pitch: i32, start: f32, velocity: i32) {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             let max_tick = clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4;
             let start_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
@@ -2105,7 +2137,7 @@ impl App {
                 pitch: pitch.clamp(0, 127) as u8,
                 start_tick,
                 length_ticks: (MIDI_TICKS_PER_BEAT / 4).max(1),
-                velocity: 100,
+                velocity: velocity.clamp(1, 127) as u8,
             });
             clip.midi_roll.enabled = true;
             self.props_dirty = true;
