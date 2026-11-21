@@ -1863,13 +1863,19 @@ impl App {
                 })
                 .collect::<Vec<MidiNoteData>>();
             let mut row_ids: Vec<i32> = notes.iter().map(|n| n.row).collect();
+            let beat_end = notes.iter().map(|n| n.start + n.length).fold(0.0f32, f32::max);
             let locate_row = if row_ids.is_empty() {
                 rows.iter().position(|r| r.pitch <= 60).unwrap_or(0) as i32
             } else {
                 row_ids.sort_unstable();
                 row_ids[row_ids.len() / 2]
             };
+            let fit_lo = row_ids.first().copied().unwrap_or(0);
+            let fit_hi = row_ids.last().copied().unwrap_or(0);
             ui.set_midi_locate_row(locate_row);
+            ui.set_midi_fit_row_lo(fit_lo);
+            ui.set_midi_fit_row_hi(fit_hi);
+            ui.set_midi_fit_beat_end(beat_end);
             self.midi_notes.set_vec(notes);
             self.midi_rows.set_vec(rows);
             ui.set_midi_fold(clip.midi_roll.fold);
@@ -1886,6 +1892,9 @@ impl App {
             self.midi_notes.set_vec(Vec::new());
             self.midi_rows.set_vec(midi_rows(&openvj_core::MidiRoll::default()));
             ui.set_midi_locate_row(0);
+            ui.set_midi_fit_row_lo(0);
+            ui.set_midi_fit_row_hi(0);
+            ui.set_midi_fit_beat_end(0.0);
             self.midi_selection.clear();
         }
 
@@ -2811,7 +2820,101 @@ impl App {
         true
     }
 
-    pub fn midi_key(&mut self, text: &str, ctrl: bool, shift: bool) -> bool {
+    /// Changes the velocity of the selection by `delta`.
+    pub fn midi_velocity_nudge(&mut self, delta: i32) -> bool {
+        if self.midi_selection.is_empty() {
+            return false;
+        }
+        self.midi_snapshot();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        let targets: Vec<usize> = self.midi_selection.iter().copied().collect();
+        for i in targets {
+            if let Some(note) = clip.midi_roll.notes.get_mut(i) {
+                note.velocity = (note.velocity as i32 + delta).clamp(1, 127) as u8;
+            }
+        }
+        if let Some(i) = self.midi_selection.iter().next().copied() {
+            if let Some(note) = clip.midi_roll.notes.get(i) {
+                self.midi_readout = format!("vel {}", note.velocity);
+            }
+        }
+        self.props_dirty = true;
+        true
+    }
+
+    /// Lengthens or shortens the selection by one grid step.
+    pub fn midi_resize(&mut self, direction: i32) -> bool {
+        if self.midi_selection.is_empty() || direction == 0 {
+            return false;
+        }
+        let Some(step) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| midi_step(&clip.midi_roll))
+        else {
+            return false;
+        };
+        self.midi_snapshot();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
+        let targets: Vec<usize> = self.midi_selection.iter().copied().collect();
+        for i in targets {
+            if let Some(note) = clip.midi_roll.notes.get_mut(i) {
+                let limit = (max - note.start_tick as i64).max(step);
+                let next = note.length_ticks as i64 + direction as i64 * step;
+                note.length_ticks = next.clamp(step, limit) as u32;
+            }
+        }
+        if let Some(i) = self.midi_selection.iter().next().copied() {
+            if let Some(note) = clip.midi_roll.notes.get(i) {
+                self.midi_readout = format!(
+                    "{}  ·  len {}",
+                    midi_note_name(note.pitch),
+                    note.length_ticks as f32 / MIDI_TICKS_PER_BEAT as f32
+                );
+            }
+        }
+        self.props_dirty = true;
+        true
+    }
+
+    /// Sets the selection (or the note nearest `beat`) back to the default velocity.
+    pub fn midi_velocity_reset(&mut self, beat: f32) -> bool {
+        self.midi_snapshot();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        if !self.midi_selection.is_empty() {
+            let targets: Vec<usize> = self.midi_selection.iter().copied().collect();
+            for i in targets {
+                if let Some(note) = clip.midi_roll.notes.get_mut(i) {
+                    note.velocity = 100;
+                }
+            }
+            self.midi_readout = "vel 100".into();
+            self.props_dirty = true;
+            return true;
+        }
+        let target = (beat.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let mut best: Option<(i64, usize)> = None;
+        for (i, note) in clip.midi_roll.notes.iter().enumerate() {
+            let dist = (note.start_tick as i64 - target).abs();
+            if best.is_none_or(|(d, _)| dist < d) {
+                best = Some((dist, i));
+            }
+        }
+        let Some((dist, index)) = best else { return false };
+        if dist > MIDI_TICKS_PER_BEAT as i64 {
+            return false;
+        }
+        if let Some(note) = clip.midi_roll.notes.get_mut(index) {
+            note.velocity = 100;
+            self.midi_readout = "vel 100".into();
+            self.props_dirty = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn midi_key(&mut self, text: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
         if ctrl {
             return match text {
                 "a" | "A" => {
@@ -2849,10 +2952,38 @@ impl App {
                     true
                 }
             }
-            "\u{F700}" => self.midi_pitch_move(1, if ctrl { 12 } else if shift { 1 } else { 0 }),
-            "\u{F701}" => self.midi_pitch_move(-1, if ctrl { 12 } else if shift { 1 } else { 0 }),
-            "\u{F702}" => self.midi_nudge(-1, 0),
-            "\u{F703}" => self.midi_nudge(1, 0),
+            "\u{F700}" => {
+                if ctrl {
+                    self.midi_velocity_nudge(if shift { 1 } else { 10 })
+                } else {
+                    self.midi_pitch_move(1, if alt { 12 } else if shift { 1 } else { 0 })
+                }
+            }
+            "\u{F701}" => {
+                if ctrl {
+                    self.midi_velocity_nudge(-(if shift { 1 } else { 10 }))
+                } else {
+                    self.midi_pitch_move(-1, if alt { 12 } else if shift { 1 } else { 0 })
+                }
+            }
+            "\u{F702}" => {
+                if ctrl && shift {
+                    self.midi_resize(-1)
+                } else if ctrl {
+                    false
+                } else {
+                    self.midi_nudge(-1, 0)
+                }
+            }
+            "\u{F703}" => {
+                if ctrl && shift {
+                    self.midi_resize(1)
+                } else if ctrl {
+                    false
+                } else {
+                    self.midi_nudge(1, 0)
+                }
+            }
             _ => false,
         }
     }

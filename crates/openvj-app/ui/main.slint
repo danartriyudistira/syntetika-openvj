@@ -1442,6 +1442,9 @@ export component MainWindow inherits Window {
     in-out property <bool> piano-expanded;
     in property <string> midi-readout;
     in property <int> midi-locate-row;
+    in property <int> midi-fit-row-lo;
+    in property <int> midi-fit-row-hi;
+    in property <float> midi-fit-beat-end;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1527,6 +1530,7 @@ export component MainWindow inherits Window {
     callback midi-roll-marquee-selected(float, float, int, int, bool);
     callback midi-roll-velocity-begin(float);
     callback midi-roll-velocity-set(float, int);
+    callback midi-roll-velocity-reset(float);
     callback midi-roll-note-resize-begin(int);
     callback midi-roll-fold-toggled();
     callback midi-roll-scale-root-picked(int);
@@ -1551,8 +1555,8 @@ export component MainWindow inherits Window {
 
     // Returns true if the key was handled.
     callback key(string) -> bool;
-    // Piano Roll shortcuts; text, Ctrl/Cmd, Shift. Returns true if handled.
-    callback midi-key(string, bool, bool) -> bool;
+    // Piano Roll shortcuts; text, Ctrl/Cmd, Shift, Alt. Returns true if handled.
+    callback midi-key(string, bool, bool, bool) -> bool;
 
     public function focus-keys() {
         keys.focus();
@@ -1691,7 +1695,7 @@ export component MainWindow inherits Window {
                 return accept;
             }
             if (root.props-tab == 4
-                && root.midi-key(e.text, e.modifiers.control || e.modifiers.meta, e.modifiers.shift)) {
+                && root.midi-key(e.text, e.modifiers.control || e.modifiers.meta, e.modifiers.shift, e.modifiers.alt)) {
                 return accept;
             }
             if (root.key(e.text)) {
@@ -2017,6 +2021,9 @@ export component MainWindow inherits Window {
                      piano-expanded: root.piano-expanded;
                      midi-readout: root.midi-readout;
                      midi-locate-row: root.midi-locate-row;
+                     midi-fit-row-lo: root.midi-fit-row-lo;
+                     midi-fit-row-hi: root.midi-fit-row-hi;
+                     midi-fit-beat-end: root.midi-fit-beat-end;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -2060,6 +2067,7 @@ export component MainWindow inherits Window {
                      midi-roll-marquee-selected(b1, b2, p1, p2, add) => { root.midi-roll-marquee-selected(b1, b2, p1, p2, add); }
                      midi-roll-velocity-begin(b) => { root.midi-roll-velocity-begin(b); }
                      midi-roll-velocity-set(b, v) => { root.midi-roll-velocity-set(b, v); }
+                     midi-roll-velocity-reset(b) => { root.midi-roll-velocity-reset(b); }
                      midi-roll-note-resize-begin(i) => { root.midi-roll-note-resize-begin(i); }
                      midi-roll-fold-toggled => { root.midi-roll-fold-toggled(); }
                      midi-roll-scale-root-picked(i) => { root.midi-roll-scale-root-picked(i); }

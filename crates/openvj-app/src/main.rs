@@ -503,6 +503,7 @@ fn main() -> Result<()> {
     on!(on_midi_roll_note_resize_begin, |a, i: i32| a.midi_roll_note_resize_begin(i.max(0) as usize));
     on!(on_midi_roll_velocity_begin, |a, b: f32| a.midi_roll_velocity_begin(b));
     on!(on_midi_roll_velocity_set, |a, b: f32, v: i32| a.midi_roll_velocity_set(b, v));
+    on!(on_midi_roll_velocity_reset, |a, b: f32| { a.midi_velocity_reset(b); });
     on!(on_midi_roll_fold_toggled, |a| a.midi_roll_fold_toggled());
     on!(on_midi_roll_scale_root_picked, |a, i: i32| a.midi_roll_scale_root(i.max(0) as usize));
     on!(on_midi_roll_scale_kind_picked, |a, i: i32| a.midi_roll_scale_kind(i.max(0) as usize));
@@ -535,9 +536,9 @@ fn main() -> Result<()> {
 
     {
         let (app, w, o) = (app.clone(), w.clone(), o.clone());
-        ui.on_midi_key(move |text, ctrl, shift| {
+        ui.on_midi_key(move |text, ctrl, shift, alt| {
             let mut handled = false;
-            with_app(&app, &w, &o, |a| handled = a.midi_key(&text, ctrl, shift));
+            with_app(&app, &w, &o, |a| handled = a.midi_key(&text, ctrl, shift, alt));
             handled
         });
     }

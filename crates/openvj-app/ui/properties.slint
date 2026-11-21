@@ -233,6 +233,9 @@ component PianoRollEditor inherits Rectangle {
     in property <bool> expanded;
     in property <string> readout;
     in property <int> locate-row;
+    in property <int> fit-row-lo;
+    in property <int> fit-row-hi;
+    in property <float> fit-beat-end;
     // One grid row and one beat, after zoom.
     property <length> row-h: 12px * root.zoom-y;
     property <length> beat-w: 32px * root.zoom-x;
@@ -254,6 +257,7 @@ component PianoRollEditor inherits Rectangle {
     callback marquee-selected(float, float, int, int, bool);
     callback velocity-begin(float);
     callback velocity-set(float, int);
+    callback velocity-reset(float);
     callback note-resize-begin(int);
     callback fold-toggled();
     callback scale-root-picked(int);
@@ -409,6 +413,18 @@ component PianoRollEditor inherits Rectangle {
                     FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
                     FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
                     FlatButton { text: "Clear"; clicked => { root.clear(); } }
+                    FlatButton {
+                        text: "Fit";
+                        clicked => {
+                            let zx = clamp(grid-flick.width / max(32px, root.fit-beat-end * 32px), 0.5, 4.0);
+                            let span = max(1, root.fit-row-hi - root.fit-row-lo + 1);
+                            let zy = clamp(grid-flick.height / (span * 12px), 0.6, 3.0);
+                            root.zoom-x-changed(zx);
+                            root.zoom-y-changed(zy);
+                            grid-flick.content-x = 0px;
+                            grid-flick.content-y = max(0px, root.fit-row-lo * 12px * zy - 6px);
+                        }
+                    }
                     FlatButton {
                         text: "Locate";
                         clicked => { grid-flick.content-y = max(0px, root.locate-row * root.row-h - grid-flick.height * 0.45); }
@@ -795,6 +811,7 @@ component PianoRollEditor inherits Rectangle {
                     border-color: Theme.bg;
                 }
                 lane-ta := TouchArea {
+                    double-clicked => { root.velocity-reset(root.beat-at(self.mouse-x)); }
                     pointer-event(e) => {
                         if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                             root.velocity-begin(root.beat-at(self.mouse-x));
@@ -942,6 +959,9 @@ export component PropertiesPanel inherits Rectangle {
     in property <bool> piano-expanded;
     in property <string> midi-readout;
     in property <int> midi-locate-row;
+    in property <int> midi-fit-row-lo;
+    in property <int> midi-fit-row-hi;
+    in property <float> midi-fit-beat-end;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -987,6 +1007,7 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-marquee-selected(float, float, int, int, bool);
     callback midi-roll-velocity-begin(float);
     callback midi-roll-velocity-set(float, int);
+    callback midi-roll-velocity-reset(float);
     callback midi-roll-note-resize-begin(int);
     callback midi-roll-fold-toggled();
     callback midi-roll-scale-root-picked(int);
@@ -1541,6 +1562,9 @@ export component PropertiesPanel inherits Rectangle {
             expanded: root.piano-expanded;
             readout: root.midi-readout;
             locate-row: root.midi-locate-row;
+            fit-row-lo: root.midi-fit-row-lo;
+            fit-row-hi: root.midi-fit-row-hi;
+            fit-beat-end: root.midi-fit-beat-end;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
@@ -1558,6 +1582,7 @@ export component PropertiesPanel inherits Rectangle {
             marquee-selected(b1, b2, p1, p2, add) => { root.midi-roll-marquee-selected(b1, b2, p1, p2, add); }
             velocity-begin(b) => { root.midi-roll-velocity-begin(b); }
             velocity-set(b, v) => { root.midi-roll-velocity-set(b, v); }
+            velocity-reset(b) => { root.midi-roll-velocity-reset(b); }
             note-resize-begin(i) => { root.midi-roll-note-resize-begin(i); }
             fold-toggled => { root.midi-roll-fold-toggled(); }
             scale-root-picked(i) => { root.midi-roll-scale-root-picked(i); }

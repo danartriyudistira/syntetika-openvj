@@ -129,7 +129,11 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | Klik keyboard di kiri | Audition pitch lewat output MIDI clip |
 | Klik kanan note | Hapus note |
 | Panah kiri/kanan | Geser note satu grid |
-| Panah atas/bawah | Naik/turun mengikuti skala; `Shift` = semitone, `Ctrl` = oktaf |
+| `Ctrl+Shift` + panah kiri/kanan | Pendekkan / panjangkan note satu grid |
+| Panah atas/bawah | Naik/turun mengikuti skala; `Shift` = semitone, `Alt` = oktaf |
+| `Ctrl` + panah atas/bawah | Velocity ±10 (`Ctrl+Shift` = ±1) |
+| Double-click stem velocity | Reset velocity ke default (100) |
+| Tombol `Fit` | Zoom dan scroll sampai semua note terlihat |
 | Tombol `Locate` | Gulir grid ke rentang nada yang dipakai clip |
 | Drag di grid kosong | Marquee selection |
 | `Shift` + klik note | Tambah atau lepas note dari selection |
