@@ -287,70 +287,128 @@ component PianoRollEditor inherits Rectangle {
         return floor(beat / 4.0) + 1;
     }
 
-    VerticalLayout {
+    HorizontalLayout {
         padding: 8px;
-        spacing: 6px;
-        HorizontalLayout {
-            height: 24px;
-            spacing: 6px;
-            FlatButton {
-                text: root.enabled ? "MIDI ON" : "MIDI OFF";
-                active: root.enabled;
-                clicked => { root.enabled-toggled(); }
+        spacing: 8px;
+        // Controls, 25%.
+        Rectangle {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+            background: Theme.panel-2;
+            border-width: 1px;
+            border-color: Theme.separator;
+            border-radius: Theme.radius;
+            Flickable {
+                content-height: 420px;
+                VerticalLayout {
+                    width: parent.width;
+                    padding: 8px;
+                    spacing: 6px;
+                    FlatButton {
+                        text: root.enabled ? "MIDI ON" : "MIDI OFF";
+                        active: root.enabled;
+                        clicked => { root.enabled-toggled(); }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        Text { text: "Out"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        BlendPicker {
+                            horizontal-stretch: 1;
+                            modes: root.devices.length > 0 ? root.devices : ["No output"];
+                            current: root.device-index;
+                            picked(i) => { root.device-picked(i); }
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        Text { text: "Ch"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        BlendPicker {
+                            horizontal-stretch: 1;
+                            modes: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"];
+                            current: root.channel;
+                            picked(i) => { root.channel-picked(i); }
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        FlatButton { text: "Draw"; active: root.mode == 0; clicked => { root.mode-picked(0); } }
+                        FlatButton { text: "Select"; active: root.mode == 1; clicked => { root.mode-picked(1); } }
+                        FlatButton { text: "Erase"; active: root.mode == 2; clicked => { root.mode-picked(2); } }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        Text { text: "Grid"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        BlendPicker {
+                            horizontal-stretch: 1;
+                            modes: ["1/4", "1/8", "1/16", "1/32"];
+                            current: root.grid == 4 ? 0 : root.grid == 8 ? 1 : root.grid == 16 ? 2 : 3;
+                            picked(i) => { root.grid-picked(i == 0 ? 4 : i == 1 ? 8 : i == 2 ? 16 : 32); }
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        Text { text: "Bars"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        FlatButton { text: "−"; clicked => { root.bars-changed(root.bars - 1); } }
+                        Text { width: 18px; text: root.bars; color: Theme.text; font-size: 10px; vertical-alignment: center; }
+                        FlatButton { text: "+"; clicked => { root.bars-changed(root.bars + 1); } }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
+                    }
+                    FlatButton { text: "Fold"; active: root.fold; clicked => { root.fold-toggled(); } }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        BlendPicker {
+                            horizontal-stretch: 1;
+                            modes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                            current: root.scale-root;
+                            picked(i) => { root.scale-root-picked(i); }
+                        }
+                        BlendPicker {
+                            horizontal-stretch: 2;
+                            modes: ["Off", "Major", "Minor", "Dorian", "Mixolydian", "Pent Minor", "Blues"];
+                            current: root.scale-kind;
+                            picked(i) => { root.scale-kind-picked(i); }
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        Text { text: "Zoom"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        FlatButton { text: "−"; clicked => { root.zoom-x-changed(max(0.5, root.zoom-x / 1.25)); } }
+                        FlatButton { text: "+"; clicked => { root.zoom-x-changed(min(4.0, root.zoom-x * 1.25)); } }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text { text: "Rows"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        FlatButton { text: "−"; clicked => { root.zoom-y-changed(max(0.6, root.zoom-y / 1.2)); } }
+                        FlatButton { text: "+"; clicked => { root.zoom-y-changed(min(3.0, root.zoom-y * 1.2)); } }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
+                        FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
+                    }
+                    FlatButton { text: "Clear notes"; clicked => { root.clear(); } }
+                    Text {
+                        text: root.mode == 0 ? "Draw: click adds, drag selects" : root.mode == 1 ? "Select: drag marquee" : "Erase: click a note";
+                        color: Theme.text-faint;
+                        font-size: 9px;
+                        wrap: word-wrap;
+                    }
+                }
             }
-            BlendPicker { modes: root.devices.length > 0 ? root.devices : ["No MIDI output"]; current: root.device-index; picked(i) => { root.device-picked(i); } }
-            BlendPicker {
-                modes: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"];
-                current: root.channel;
-                picked(i) => { root.channel-picked(i); }
-            }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            FlatButton { text: "Draw"; active: root.mode == 0; clicked => { root.mode-picked(0); } }
-            FlatButton { text: "Select"; active: root.mode == 1; clicked => { root.mode-picked(1); } }
-            FlatButton { text: "Erase"; active: root.mode == 2; clicked => { root.mode-picked(2); } }
         }
-        HorizontalLayout {
-            height: 22px;
-            spacing: 6px;
-            Text { text: "Grid"; color: Theme.text-dim; vertical-alignment: center; }
-            BlendPicker { modes: ["1/4", "1/8", "1/16", "1/32"]; current: root.grid == 4 ? 0 : root.grid == 8 ? 1 : root.grid == 16 ? 2 : 3; picked(i) => { root.grid-picked(i == 0 ? 4 : i == 1 ? 8 : i == 2 ? 16 : 32); } }
-            FlatButton { text: "−"; clicked => { root.bars-changed(root.bars - 1); } }
-            Text { text: root.bars; color: Theme.text; vertical-alignment: center; }
-            FlatButton { text: "+"; clicked => { root.bars-changed(root.bars + 1); } }
-            Text { text: "Loop"; color: Theme.text-dim; vertical-alignment: center; }
-            Text { text: root.loop-start + " – " + root.loop-end; color: Theme.text; vertical-alignment: center; }
-            FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            FlatButton { text: "Fold"; active: root.fold; clicked => { root.fold-toggled(); } }
-            FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
-            FlatButton { text: "Clear"; clicked => { root.clear(); } }
-        }
-        HorizontalLayout {
-            height: 22px;
-            spacing: 6px;
-            Text { text: "Key"; color: Theme.text-dim; vertical-alignment: center; }
-            BlendPicker {
-                modes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                current: root.scale-root;
-                picked(i) => { root.scale-root-picked(i); }
-            }
-            BlendPicker {
-                modes: ["Off", "Major", "Minor", "Dorian", "Mixolydian", "Pent Minor", "Blues"];
-                current: root.scale-kind;
-                picked(i) => { root.scale-kind-picked(i); }
-            }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            FlatButton { text: "Zoom −"; clicked => { root.zoom-x-changed(max(0.5, root.zoom-x / 1.25)); } }
-            FlatButton { text: "Zoom +"; clicked => { root.zoom-x-changed(min(4.0, root.zoom-x * 1.25)); } }
-            FlatButton { text: "Rows −"; clicked => { root.zoom-y-changed(max(0.6, root.zoom-y / 1.2)); } }
-            FlatButton { text: "Rows +"; clicked => { root.zoom-y-changed(min(3.0, root.zoom-y * 1.2)); } }
-            FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
-        }
-        Text {
-            text: root.mode == 0 ? "Draw: click adds, drag selects" : root.mode == 1 ? "Select: drag marquee, click a note to pick" : "Erase: click a note to delete";
-            color: Theme.text-faint;
-            font-size: 10px;
-        }
+        // Piano roll, 75%.
+        Rectangle {
+            horizontal-stretch: 3;
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 4px;
         // Bar ruler with the loop range.
         HorizontalLayout {
             height: 22px;
@@ -723,6 +781,8 @@ component PianoRollEditor inherits Rectangle {
                 color: Theme.text-dim;
                 font-size: 10px;
                 vertical-alignment: center;
+            }
+        }
             }
         }
     }
