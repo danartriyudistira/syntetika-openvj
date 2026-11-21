@@ -24,6 +24,7 @@ fn tools() -> Vec<Value> {
     vec![
         json!({"name":"status","description":"Get Syntetika status and selected clip.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name":"performance","description":"Get FPS and render telemetry.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"set_tempo","description":"Set composition BPM.","inputSchema":{"type":"object","properties":{"bpm":{"type":"number","minimum":20,"maximum":300}},"required":["bpm"]}}),
         json!({"name":"trigger_clip","description":"Trigger a clip using 1-based layer and column.","inputSchema":{"type":"object","properties":{"layer":{"type":"integer"},"column":{"type":"integer"}},"required":["layer","column"]}}),
         json!({"name":"select_clip","description":"Select a clip using 1-based layer and column.","inputSchema":{"type":"object","properties":{"layer":{"type":"integer"},"column":{"type":"integer"}},"required":["layer","column"]}}),
         json!({"name":"add_midi_note","description":"Add a MIDI note to the selected clip. Start is in beats.","inputSchema":{"type":"object","properties":{"pitch":{"type":"integer","minimum":0,"maximum":127},"start":{"type":"number","minimum":0}},"required":["pitch","start"]}}),
@@ -38,6 +39,7 @@ fn call_tool(params: &Value) -> Value {
     let action = match name {
         "status" => "status",
         "performance" => "performance",
+        "set_tempo" => "set_tempo",
         "trigger_clip" => "trigger_clip",
         "select_clip" => "select_clip",
         "add_midi_note" => "add_midi_note",

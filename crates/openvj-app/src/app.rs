@@ -2034,6 +2034,11 @@ impl App {
                     "render_passes": self.render_passes,
                     "frame_time_ms": self.frame_time * 1000.0,
                 }),
+                "set_tempo" => {
+                    let bpm = request.args.get("bpm").and_then(|v| v.as_f64()).unwrap_or(120.0).clamp(20.0, 300.0) as f32;
+                    self.set_bpm(bpm);
+                    serde_json::json!({"ok": true, "bpm": self.comp.bpm})
+                }
                 "trigger_clip" => {
                     let layer = request.args.get("layer").and_then(|v| v.as_u64()).unwrap_or(0).saturating_sub(1) as usize;
                     let column = request.args.get("column").and_then(|v| v.as_u64()).unwrap_or(0).saturating_sub(1) as usize;
