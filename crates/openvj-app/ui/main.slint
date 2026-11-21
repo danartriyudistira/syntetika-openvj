@@ -1,6 +1,6 @@
 import { LineEdit, ScrollView, ListView } from "std-widgets.slint";
 import { Theme, CloseIcon } from "theme.slint";
-import { Scope, ModNames, AudioLevels, MidiLearn, ParamData, EffectData, CellData, LayerData, ColumnData, DeckData, BrowserItem } from "state.slint";
+import { Scope, ModNames, AudioLevels, MidiLearn, ParamData, MidiNoteData, EffectData, CellData, LayerData, ColumnData, DeckData, BrowserItem } from "state.slint";
 import { Fader, ToggleButton, FlatButton, BlendPicker, PanelTitle, Monitor, BandMeters, MidiSpot } from "controls.slint";
 import { PropertiesPanel } from "properties.slint";
 import { TabButton } from "controls.slint";
@@ -1421,6 +1421,12 @@ export component MainWindow inherits Window {
     in property <string> clip-source-url;
     in-out property <string> clip-name;
     in property <[ParamData]> clip-params;
+    in property <[MidiNoteData]> midi-notes;
+    in property <[string]> midi-devices;
+    in property <int> midi-device-index;
+    in property <int> midi-channel;
+    in property <bool> midi-roll-enabled;
+    in property <int> midi-roll-bars;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1489,6 +1495,12 @@ export component MainWindow inherits Window {
     callback clip-router-input-picked(int);
     callback clip-trigger-picked(int);
     callback clip-synced-picked(bool);
+    callback midi-roll-enabled-toggled();
+    callback midi-roll-device-picked(int);
+    callback midi-roll-channel-picked(int);
+    callback midi-roll-note-added(int, float);
+    callback midi-roll-note-deleted(int);
+    callback midi-roll-cleared();
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1937,8 +1949,14 @@ export component MainWindow inherits Window {
                     clip-detail: root.clip-detail;
                     clip-path: root.clip-path;
                     clip-source-url: root.clip-source-url;
-                    clip-name <=> root.clip-name;
-                    clip-params: root.clip-params;
+                     clip-name <=> root.clip-name;
+                     clip-params: root.clip-params;
+                     midi-notes: root.midi-notes;
+                     midi-devices: root.midi-devices;
+                     midi-device-index: root.midi-device-index;
+                     midi-channel: root.midi-channel;
+                     midi-roll-enabled: root.midi-roll-enabled;
+                     midi-roll-bars: root.midi-roll-bars;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -1964,7 +1982,13 @@ export component MainWindow inherits Window {
                     clip-autopilot-picked(i) => { root.clip-autopilot-picked(i); }
                     clip-router-input-picked(i) => { root.clip-router-input-picked(i); }
                     clip-trigger-picked(i) => { root.clip-trigger-picked(i); }
-                    clip-synced-picked(b) => { root.clip-synced-picked(b); }
+                     clip-synced-picked(b) => { root.clip-synced-picked(b); }
+                     midi-roll-enabled-toggled => { root.midi-roll-enabled-toggled(); }
+                     midi-roll-device-picked(i) => { root.midi-roll-device-picked(i); }
+                     midi-roll-channel-picked(i) => { root.midi-roll-channel-picked(i); }
+                     midi-roll-note-added(p, s) => { root.midi-roll-note-added(p, s); }
+                     midi-roll-note-deleted(i) => { root.midi-roll-note-deleted(i); }
+                     midi-roll-cleared => { root.midi-roll-cleared(); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }

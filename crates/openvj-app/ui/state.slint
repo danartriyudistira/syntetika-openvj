@@ -64,6 +64,14 @@ export struct ParamData {
     restartable: bool,
 }
 
+export struct MidiNoteData {
+    index: int,
+    pitch: int,
+    start: float,
+    length: float,
+    velocity: int,
+}
+
 export struct EffectData {
     name: string,
     enabled: bool,

@@ -34,7 +34,7 @@ use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
     AudioLevels, BrowserItem, CellData, ColumnData, DeckData, Disc, DiscParam, EffectData, LayerData, Lib, LibChip,
-    LibSideRow, LibTile, MainWindow, MappingWindow, MediaTile, MidiLearn, MilkPack, ModNames, OutputWindow, ParamData,
+    LibSideRow, LibTile, MainWindow, MappingWindow, MediaTile, MidiLearn, MidiNoteData, MilkPack, ModNames, OutputWindow, ParamData,
     Pl, PresetRow, Shadertoy, SynthLayer,
 };
 
@@ -237,6 +237,9 @@ pub struct App {
     midi: Option<MidiPorts>,
     midi_output: MidiOutputManager,
     midi_rolls: HashMap<ClipId, MidiRollPlayback>,
+    midi_notes: Rc<VecModel<MidiNoteData>>,
+    midi_devices: Vec<String>,
+    midi_device_index: usize,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
     midi_scan_at: f64,
@@ -416,6 +419,9 @@ impl App {
             midi: None,
             midi_output: MidiOutputManager::default(),
             midi_rolls: HashMap::new(),
+            midi_notes: Rc::new(VecModel::default()),
+            midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
+            midi_device_index: 0,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
             midi_status: "Off".into(),
@@ -1680,6 +1686,11 @@ impl App {
     fn sync_props(&mut self, ui: &MainWindow) {
         let clip = self.selected.and_then(|(l, c)| self.comp.clip(l, c));
         ui.set_clip_valid(clip.is_some());
+        ui.set_midi_devices(ModelRc::new(VecModel::from(
+            self.midi_devices.iter().map(|d| SharedString::from(d.as_str())).collect::<Vec<_>>(),
+        )));
+        ui.set_midi_device_index(self.midi_device_index as i32);
+        ui.set_midi_notes(ModelRc::from(self.midi_notes.clone()));
         let source_url = match clip.map(|c| &c.source) {
             Some(ClipSource::Isf { generator }) => generator.ty().map(|t| t.def.source.clone()).unwrap_or_default(),
             _ => String::new(),
@@ -1735,8 +1746,24 @@ impl App {
             ui.set_clip_router_input(current);
             ui.set_clip_trigger(clip.trigger.index() as i32);
             ui.set_clip_synced(clip.sync_beats.is_some());
+            ui.set_midi_roll_enabled(clip.midi_roll.enabled);
+            ui.set_midi_channel(clip.midi_roll.normalized_channel() as i32);
+            ui.set_midi_roll_bars(clip.midi_roll.bars.max(1) as i32);
+            self.midi_notes.set_vec(
+                clip.midi_roll.notes.iter().enumerate().map(|(index, note)| MidiNoteData {
+                    index: index as i32,
+                    pitch: note.pitch as i32,
+                    start: note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32,
+                    length: note.length_ticks as f32 / MIDI_TICKS_PER_BEAT as f32,
+                    velocity: note.velocity as i32,
+                }).collect::<Vec<MidiNoteData>>(),
+            );
         } else {
             ui.set_preview_label(SharedString::default());
+            ui.set_midi_roll_enabled(false);
+            ui.set_midi_channel(0);
+            ui.set_midi_roll_bars(1);
+            self.midi_notes.set_vec(Vec::new());
         }
 
         let layer = self.comp.layers.get(self.selected_layer);
@@ -2056,6 +2083,63 @@ impl App {
     pub fn clip_synced(&mut self, synced: bool) {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             clip.sync_beats = synced.then_some(clip.sync_beats.unwrap_or(4.0));
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_enabled_toggled(&mut self) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.enabled = !clip.midi_roll.enabled;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_device_picked(&mut self, index: usize) {
+        let Some(device) = self.midi_devices.get(index).cloned() else { return };
+        self.midi_device_index = index;
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.output_device = device;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_channel_picked(&mut self, channel: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.channel = channel.min(15) as u8;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_note_added(&mut self, pitch: i32, start: f32) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            let max_tick = clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4;
+            let start_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+            if start_tick >= max_tick { return; }
+            clip.midi_roll.notes.push(openvj_core::MidiNote {
+                pitch: pitch.clamp(0, 127) as u8,
+                start_tick,
+                length_ticks: (MIDI_TICKS_PER_BEAT / 4).max(1),
+                velocity: 100,
+            });
+            clip.midi_roll.enabled = true;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_note_deleted(&mut self, index: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            if index < clip.midi_roll.notes.len() {
+                clip.midi_roll.notes.remove(index);
+                self.props_dirty = true;
+            }
+        }
+    }
+
+    pub fn midi_roll_cleared(&mut self) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.notes.clear();
+            clip.midi_roll.enabled = false;
+            self.midi_output.all_notes_off();
             self.props_dirty = true;
         }
     }

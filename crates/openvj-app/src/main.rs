@@ -481,6 +481,12 @@ fn main() -> Result<()> {
     on!(on_clip_router_input_picked, |a, i: i32| a.clip_router_input(i.max(0) as usize));
     on!(on_clip_trigger_picked, |a, i: i32| a.clip_trigger(i.max(0) as usize));
     on!(on_clip_synced_picked, |a, b: bool| a.clip_synced(b));
+    on!(on_midi_roll_enabled_toggled, |a| a.midi_roll_enabled_toggled());
+    on!(on_midi_roll_device_picked, |a, i: i32| a.midi_roll_device_picked(i.max(0) as usize));
+    on!(on_midi_roll_channel_picked, |a, i: i32| a.midi_roll_channel_picked(i.max(0) as usize));
+    on!(on_midi_roll_note_added, |a, p: i32, s: f32| a.midi_roll_note_added(p, s));
+    on!(on_midi_roll_note_deleted, |a, i: i32| a.midi_roll_note_deleted(i.max(0) as usize));
+    on!(on_midi_roll_cleared, |a| a.midi_roll_cleared());
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));

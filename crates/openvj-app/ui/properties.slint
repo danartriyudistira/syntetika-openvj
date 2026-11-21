@@ -3,7 +3,7 @@
 
 import { LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Scope, ParamData, EffectData, AudioLevels } from "state.slint";
+import { Scope, ParamData, EffectData, AudioLevels, MidiNoteData } from "state.slint";
 import { FlatButton, ToggleButton, TabButton, BlendPicker, PanelTitle, ModParam, ParamBar, BandMeters } from "controls.slint";
 import { Shadertoy } from "shadertoy.slint";
 import { Drag } from "drag.slint";
@@ -210,6 +210,87 @@ component Tab inherits TabButton {
     height: 34px;
 }
 
+component PianoRollEditor inherits Rectangle {
+    in property <[MidiNoteData]> notes;
+    in property <[string]> devices;
+    in property <int> device-index;
+    in property <int> channel;
+    in property <bool> enabled;
+    in property <int> bars;
+    callback enabled-toggled();
+    callback device-picked(int);
+    callback channel-picked(int);
+    callback add-note(int, float);
+    callback delete-note(int);
+    callback clear();
+    background: Theme.track;
+    border-width: 1px;
+    border-color: Theme.separator;
+    border-radius: Theme.radius;
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            height: 24px;
+            spacing: 6px;
+            FlatButton {
+                text: root.enabled ? "MIDI ON" : "MIDI OFF";
+                active: root.enabled;
+                clicked => { root.enabled-toggled(); }
+            }
+            Text { text: "Output"; color: Theme.text-dim; vertical-alignment: center; }
+            BlendPicker { modes: root.devices.length > 0 ? root.devices : ["No MIDI output"]; current: root.device-index; picked(i) => { root.device-picked(i); } }
+            Text { text: "Channel"; color: Theme.text-dim; vertical-alignment: center; }
+            BlendPicker {
+                modes: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"];
+                current: root.channel;
+                picked(i) => { root.channel-picked(i); }
+            }
+            FlatButton { text: "Clear"; clicked => { root.clear(); } }
+        }
+        Text {
+            text: "Click the grid to add a MIDI note. Click a note to remove it. 32 ticks per beat.";
+            color: Theme.text-faint;
+            font-size: 10px;
+        }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: 1280px;
+            Rectangle {
+                width: max(parent.width, root.bars * 128px + 80px);
+                height: 1280px;
+                background: Theme.bg;
+                for row[i] in 128: Rectangle {
+                    y: i * 10px;
+                    height: 10px;
+                    width: parent.width;
+                    background: Math.mod(i, 12) == 1 || Math.mod(i, 12) == 3 || Math.mod(i, 12) == 6 || Math.mod(i, 12) == 8 || Math.mod(i, 12) == 10 ? #15181b : transparent;
+                    border-width: 1px;
+                    border-color: Theme.separator;
+                }
+                for note in root.notes: Rectangle {
+                    x: note.start * 32px;
+                    y: (127 - note.pitch) * 10px;
+                    width: max(6px, note.length * 32px);
+                    height: 8px;
+                    border-radius: 2px;
+                    background: Theme.accent;
+                    opacity: 0.45 + note.velocity / 255.0;
+                    TouchArea { clicked => { root.delete-note(note.index); } }
+                }
+                TouchArea {
+                    clicked => {
+                        let pitch = clamp(127 - floor(self.mouse-y / 10px), 0, 127);
+                        let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
+                        root.add-note(pitch, beat);
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component PropertiesPanel inherits Rectangle {
     in-out property <int> tab;
     in property <[string]> blend-modes;
@@ -280,6 +361,12 @@ export component PropertiesPanel inherits Rectangle {
     in property <[string]> trigger-styles;
     in property <int> clip-trigger;
     in property <bool> clip-synced;
+    in property <[MidiNoteData]> midi-notes;
+    in property <[string]> midi-devices;
+    in property <int> midi-device-index;
+    in property <int> midi-channel;
+    in property <bool> midi-roll-enabled;
+    in property <int> midi-roll-bars;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -308,6 +395,12 @@ export component PropertiesPanel inherits Rectangle {
     callback clip-router-input-picked(int);
     callback clip-trigger-picked(int);
     callback clip-synced-picked(bool);
+    callback midi-roll-enabled-toggled();
+    callback midi-roll-device-picked(int);
+    callback midi-roll-channel-picked(int);
+    callback midi-roll-note-added(int, float);
+    callback midi-roll-note-deleted(int);
+    callback midi-roll-cleared();
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -362,6 +455,11 @@ export component PropertiesPanel inherits Rectangle {
                 subtitle: root.group-name;
                 active: root.tab == 3;
                 clicked => { root.tab = 3; }
+            }
+            if root.clip-valid: Tab {
+                title: "Piano Roll";
+                active: root.tab == 4;
+                clicked => { root.tab = 4; }
             }
         }
 
@@ -821,6 +919,20 @@ export component PropertiesPanel inherits Rectangle {
                 effect-remove(s, i) => { root.effect-remove(s, i); }
                 effect-move(s, i, d) => { root.effect-move(s, i, d); }
             }
+        }
+        if root.tab == 4 && root.clip-valid: PianoRollEditor {
+            notes: root.midi-notes;
+            devices: root.midi-devices;
+            device-index: root.midi-device-index;
+            channel: root.midi-channel;
+            enabled: root.midi-roll-enabled;
+            bars: root.midi-roll-bars;
+            enabled-toggled => { root.midi-roll-enabled-toggled(); }
+            device-picked(i) => { root.midi-roll-device-picked(i); }
+            channel-picked(i) => { root.midi-roll-channel-picked(i); }
+            add-note(p, s) => { root.midi-roll-note-added(p, s); }
+            delete-note(i) => { root.midi-roll-note-deleted(i); }
+            clear => { root.midi-roll-cleared(); }
         }
     }
 }
