@@ -1,6 +1,8 @@
 //! MIDI output ports used by clip Piano Rolls.
 
 use midir::{MidiOutput, MidiOutputConnection};
+use std::sync::mpsc::{self, Sender};
+use std::thread::{self, JoinHandle};
 
 const CLIENT: &str = "Syntetika OpenVJ";
 
@@ -74,5 +76,78 @@ impl MidiOutputManager {
 impl Drop for MidiOutputManager {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+enum OutputCommand {
+    Open(String),
+    NoteOn(u8, u8, u8),
+    NoteOff(u8, u8),
+    AllNotesOff,
+    Shutdown,
+}
+
+/// Non-blocking MIDI output facade. Device enumeration remains synchronous for
+/// the settings UI, but opening ports and sending messages never runs on the
+/// Syntetika render thread.
+pub struct MidiOutputWorker {
+    tx: Sender<OutputCommand>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl MidiOutputWorker {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel();
+        let join = thread::Builder::new()
+            .name("syntetika-midi-output".into())
+            .spawn(move || {
+                let mut output = MidiOutputManager::default();
+                while let Ok(command) = rx.recv() {
+                    match command {
+                        OutputCommand::Open(device) => {
+                            if let Err(error) = output.open(&device) {
+                                eprintln!("Syntetika MIDI output: {error}");
+                            }
+                        }
+                        OutputCommand::NoteOn(channel, pitch, velocity) => {
+                            output.note_on(channel, pitch, velocity);
+                        }
+                        OutputCommand::NoteOff(channel, pitch) => {
+                            output.note_off(channel, pitch);
+                        }
+                        OutputCommand::AllNotesOff => output.all_notes_off(),
+                        OutputCommand::Shutdown => break,
+                    }
+                }
+                output.close();
+            })
+            .expect("MIDI output worker thread");
+        Self { tx, join: Some(join) }
+    }
+
+    pub fn open(&self, device: impl Into<String>) {
+        let _ = self.tx.send(OutputCommand::Open(device.into()));
+    }
+
+    pub fn note_on(&self, channel: u8, pitch: u8, velocity: u8) {
+        let _ = self.tx.send(OutputCommand::NoteOn(channel, pitch, velocity));
+    }
+
+    pub fn note_off(&self, channel: u8, pitch: u8) {
+        let _ = self.tx.send(OutputCommand::NoteOff(channel, pitch));
+    }
+
+    pub fn all_notes_off(&self) {
+        let _ = self.tx.send(OutputCommand::AllNotesOff);
+    }
+}
+
+impl Drop for MidiOutputWorker {
+    fn drop(&mut self) {
+        let _ = self.tx.send(OutputCommand::AllNotesOff);
+        let _ = self.tx.send(OutputCommand::Shutdown);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
     }
 }

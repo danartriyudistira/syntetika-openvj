@@ -29,7 +29,7 @@ use slint::{ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffe
 use crate::browser::{self, Entry};
 use crate::link::Link;
 use crate::midi::{self, MidiPorts};
-use crate::midi_output::MidiOutputManager;
+use crate::midi_output::{MidiOutputManager, MidiOutputWorker};
 use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
@@ -115,6 +115,7 @@ struct MidiRollPlayback {
     started_at: f64,
     started_beat: f64,
     last_tick: f64,
+    channel: u8,
     active: HashMap<u8, f64>,
 }
 
@@ -235,7 +236,7 @@ pub struct App {
     audio_status: String,
 
     midi: Option<MidiPorts>,
-    midi_output: MidiOutputManager,
+    midi_output: MidiOutputWorker,
     midi_rolls: HashMap<ClipId, MidiRollPlayback>,
     midi_notes: Rc<VecModel<MidiNoteData>>,
     midi_devices: Vec<String>,
@@ -417,7 +418,7 @@ impl App {
             audio_device: 0,
             audio_status: "Off. Turn it on to drive mapped parameters from the FFT bands.".into(),
             midi: None,
-            midi_output: MidiOutputManager::default(),
+            midi_output: MidiOutputWorker::new(),
             midi_rolls: HashMap::new(),
             midi_notes: Rc::new(VecModel::default()),
             midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
@@ -790,14 +791,18 @@ impl App {
             .collect();
         let live: HashSet<ClipId> = jobs.iter().map(|(id, _, _)| *id).collect();
 
+        let mut stale_notes = Vec::new();
         self.midi_rolls.retain(|id, state| {
-            if live.contains(id) { true } else {
-                for pitch in state.active.keys().copied().collect::<Vec<_>>() {
-                    self.midi_output.note_off(0, pitch);
-                }
+            if live.contains(id) {
+                true
+            } else {
+                stale_notes.extend(state.active.keys().copied().map(|pitch| (state.channel, pitch)));
                 false
             }
         });
+        for (channel, pitch) in stale_notes {
+            self.midi_output.note_off(channel, pitch);
+        }
 
         if jobs.is_empty() {
             if !self.midi_rolls.is_empty() {
@@ -813,28 +818,31 @@ impl App {
                 continue;
             }
 
-            if let Err(error) = self.midi_output.open(&roll.output_device) {
-                self.midi_status = format!("MIDI Roll: {error}");
-                continue;
-            }
+            self.midi_output.open(roll.output_device.clone());
 
             let loop_start = roll.loop_start as f64;
             let loop_end = roll.loop_end_for_bars() as f64;
             let loop_len = (loop_end - loop_start).max(1.0);
             let current = ((beat - playing.started_beat).max(0.0) * clip.speed.max(0.0) as f64)
                 * MIDI_TICKS_PER_BEAT as f64;
+            let channel = roll.normalized_channel();
             let state = self.midi_rolls.entry(id).or_insert_with(|| MidiRollPlayback {
                 started_at: playing.started_at,
                 started_beat: playing.started_beat,
                 last_tick: current - 0.001,
+                channel,
                 active: HashMap::new(),
             });
 
-            if state.started_at != playing.started_at || state.started_beat != playing.started_beat {
+            if state.started_at != playing.started_at || state.started_beat != playing.started_beat || state.channel != channel {
+                for pitch in state.active.keys().copied().collect::<Vec<_>>() {
+                    self.midi_output.note_off(state.channel, pitch);
+                }
                 state.active.clear();
                 state.started_at = playing.started_at;
                 state.started_beat = playing.started_beat;
                 state.last_tick = current - 0.001;
+                state.channel = channel;
             }
 
             if current < state.last_tick {
@@ -843,7 +851,6 @@ impl App {
             }
 
             let previous = state.last_tick;
-            let channel = roll.normalized_channel();
             let first_cycle = (previous / loop_len).floor() as i64;
             let last_cycle = (current / loop_len).floor() as i64;
 
