@@ -30,6 +30,8 @@ fn tools() -> Vec<Value> {
         json!({"name":"add_midi_note","description":"Add a MIDI note to the selected clip. Start is in beats, velocity 1-127.","inputSchema":{"type":"object","properties":{"pitch":{"type":"integer","minimum":0,"maximum":127},"start":{"type":"number","minimum":0},"velocity":{"type":"integer","minimum":1,"maximum":127}},"required":["pitch","start"]}}),
         json!({"name":"set_midi_roll","description":"Configure MIDI Roll output of the selected clip: device, channel (0-15), enabled.","inputSchema":{"type":"object","properties":{"device":{"type":"string"},"channel":{"type":"integer","minimum":0,"maximum":15},"enabled":{"type":"boolean"}}}}),
         json!({"name":"clear_midi_roll","description":"Clear MIDI notes from the selected clip.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"get_midi_roll","description":"List notes of the selected clip with start/length in beats and selection state.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"marquee_select","description":"Select notes overlapping a beat/pitch rectangle.","inputSchema":{"type":"object","properties":{"beat_lo":{"type":"number"},"beat_hi":{"type":"number"},"pitch_lo":{"type":"integer"},"pitch_hi":{"type":"integer"},"additive":{"type":"boolean"}},"required":["beat_lo","beat_hi","pitch_lo","pitch_hi"]}}),
         json!({"name":"panic_midi","description":"Send All Notes Off to MIDI outputs.","inputSchema":{"type":"object","properties":{}}}),
     ]
 }
@@ -46,6 +48,8 @@ fn call_tool(params: &Value) -> Value {
         "add_midi_note" => "add_midi_note",
         "set_midi_roll" => "set_midi_roll",
         "clear_midi_roll" => "clear_midi_roll",
+        "get_midi_roll" => "get_midi_roll",
+        "marquee_select" => "marquee_select",
         "panic_midi" => "panic_midi",
         _ => return json!({"error":{"code":-32602,"message":"unknown tool"}}),
     };

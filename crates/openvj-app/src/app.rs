@@ -234,6 +234,9 @@ pub struct App {
     midi_devices: Vec<String>,
     midi_device_index: usize,
     midi_selection: HashSet<usize>,
+    /// Note positions captured when a drag gesture starts, so every selected note
+    /// moves by the same delta without accumulating rounding drift.
+    midi_drag: Option<HashMap<usize, (u32, u8)>>,
     control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
@@ -417,6 +420,7 @@ impl App {
             midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
             midi_device_index: 0,
             midi_selection: HashSet::new(),
+            midi_drag: None,
             control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
@@ -2084,6 +2088,38 @@ impl App {
                     self.midi_roll_cleared();
                     serde_json::json!({"ok": true})
                 }
+                "get_midi_roll" => {
+                    let selection = &self.midi_selection;
+                    let notes: Vec<serde_json::Value> = match self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+                        Some(clip) => clip
+                            .midi_roll
+                            .notes
+                            .iter()
+                            .enumerate()
+                            .map(|(index, note)| {
+                                serde_json::json!({
+                                    "index": index,
+                                    "pitch": note.pitch,
+                                    "start": note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32,
+                                    "length": note.length_ticks as f32 / MIDI_TICKS_PER_BEAT as f32,
+                                    "velocity": note.velocity,
+                                    "selected": selection.contains(&index),
+                                })
+                            })
+                            .collect(),
+                        None => Vec::new(),
+                    };
+                    serde_json::json!({"ok": true, "notes": notes})
+                }
+                "marquee_select" => {
+                    let beat_lo = request.args.get("beat_lo").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                    let beat_hi = request.args.get("beat_hi").and_then(|v| v.as_f64()).unwrap_or(4.0) as f32;
+                    let pitch_lo = request.args.get("pitch_lo").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    let pitch_hi = request.args.get("pitch_hi").and_then(|v| v.as_i64()).unwrap_or(127) as i32;
+                    let additive = request.args.get("additive").and_then(|v| v.as_bool()).unwrap_or(false);
+                    self.midi_roll_marquee_selected(beat_lo, beat_hi, pitch_lo, pitch_hi, additive);
+                    serde_json::json!({"ok": true, "selected": self.midi_selection.len()})
+                }
                 "panic_midi" => {
                     self.midi_output.all_notes_off();
                     serde_json::json!({"ok": true})
@@ -2133,6 +2169,7 @@ impl App {
             let max_tick = clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4;
             let start_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
             if start_tick >= max_tick { return; }
+            self.midi_selection.clear();
             clip.midi_roll.notes.push(openvj_core::MidiNote {
                 pitch: pitch.clamp(0, 127) as u8,
                 start_tick,
@@ -2173,6 +2210,7 @@ impl App {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             clip.midi_roll.notes.clear();
             clip.midi_roll.enabled = false;
+            self.midi_selection.clear();
             self.midi_output.all_notes_off();
             self.props_dirty = true;
         }
@@ -2206,16 +2244,81 @@ impl App {
         }
     }
 
+    pub fn midi_roll_note_drag_begin(&mut self, index: usize) {
+        let snapshot = match self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            Some(clip) => {
+                let len = clip.midi_roll.notes.len();
+                let mut targets: Vec<usize> = if self.midi_selection.contains(&index) {
+                    self.midi_selection.iter().copied().filter(|i| *i < len).collect()
+                } else {
+                    Vec::new()
+                };
+                if targets.is_empty() && index < len {
+                    targets.push(index);
+                }
+                targets
+                    .into_iter()
+                    .filter_map(|i| clip.midi_roll.notes.get(i).map(|n| (i, (n.start_tick, n.pitch))))
+                    .collect::<HashMap<usize, (u32, u8)>>()
+            }
+            None => HashMap::new(),
+        };
+        self.midi_drag = if snapshot.is_empty() { None } else { Some(snapshot) };
+    }
+
+    pub fn midi_roll_note_drag_end(&mut self) {
+        self.midi_drag = None;
+    }
+
     pub fn midi_roll_note_moved(&mut self, index: usize, start: f32, pitch: i32) {
-        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
-            let max = clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT;
-            if let Some(note) = clip.midi_roll.notes.get_mut(index) {
-                let tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
-                note.start_tick = tick.min(max.saturating_sub(note.length_ticks.max(1)));
-                note.pitch = pitch.clamp(0, 127) as u8;
-                self.props_dirty = true;
+        let Some(origins) = self.midi_drag.clone() else { return };
+        let Some(&(origin_tick, origin_pitch)) = origins.get(&index) else { return };
+        let target_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let delta_tick = target_tick - origin_tick as i64;
+        let delta_pitch = pitch - origin_pitch as i32;
+        if delta_tick == 0 && delta_pitch == 0 {
+            return;
+        }
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return };
+        let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
+        for (i, (tick, p)) in &origins {
+            if let Some(note) = clip.midi_roll.notes.get_mut(*i) {
+                let limit = (max - note.length_ticks.max(1) as i64).max(0);
+                note.start_tick = (*tick as i64 + delta_tick).clamp(0, limit) as u32;
+                note.pitch = (*p as i32 + delta_pitch).clamp(0, 127) as u8;
             }
         }
+        self.props_dirty = true;
+    }
+
+    pub fn midi_roll_marquee_selected(&mut self, beat_lo: f32, beat_hi: f32, pitch_lo: i32, pitch_hi: i32, additive: bool) {
+        if !additive {
+            self.midi_selection.clear();
+        }
+        let beat_lo = beat_lo.max(0.0);
+        let beat_hi = beat_hi.max(beat_lo + 1.0 / MIDI_TICKS_PER_BEAT as f32);
+        let hits: Vec<usize> = match self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            Some(clip) => clip
+                .midi_roll
+                .notes
+                .iter()
+                .enumerate()
+                .filter(|(_, note)| {
+                    let start = note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32;
+                    let end = (note.start_tick + note.length_ticks.max(1)) as f32 / MIDI_TICKS_PER_BEAT as f32;
+                    end > beat_lo
+                        && start < beat_hi
+                        && (note.pitch as i32) >= pitch_lo
+                        && (note.pitch as i32) <= pitch_hi
+                })
+                .map(|(i, _)| i)
+                .collect(),
+            None => Vec::new(),
+        };
+        for i in hits {
+            self.midi_selection.insert(i);
+        }
+        self.props_dirty = true;
     }
 
     pub fn midi_roll_note_resized(&mut self, index: usize, length: f32) {

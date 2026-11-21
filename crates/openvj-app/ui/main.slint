@@ -1510,6 +1510,9 @@ export component MainWindow inherits Window {
     callback midi-roll-note-moved(int, float, int);
     callback midi-roll-note-resized(int, float);
     callback midi-roll-note-selected(int, bool);
+    callback midi-roll-note-drag-begin(int);
+    callback midi-roll-note-drag-end();
+    callback midi-roll-marquee-selected(float, float, int, int, bool);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -2007,6 +2010,9 @@ export component MainWindow inherits Window {
                      midi-roll-note-moved(i, s, p) => { root.midi-roll-note-moved(i, s, p); }
                      midi-roll-note-resized(i, l) => { root.midi-roll-note-resized(i, l); }
                      midi-roll-note-selected(i, a) => { root.midi-roll-note-selected(i, a); }
+                     midi-roll-note-drag-begin(i) => { root.midi-roll-note-drag-begin(i); }
+                     midi-roll-note-drag-end => { root.midi-roll-note-drag-end(); }
+                     midi-roll-marquee-selected(b1, b2, p1, p2, add) => { root.midi-roll-marquee-selected(b1, b2, p1, p2, add); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }

@@ -232,6 +232,10 @@ component PianoRollEditor inherits Rectangle {
     callback note-moved(int, float, int);
     callback note-resized(int, float);
     callback note-selected(int, bool);
+    callback note-drag-begin(int);
+    callback note-drag-end();
+    /// beat-lo, beat-hi, pitch-lo, pitch-hi, additive (Shift held).
+    callback marquee-selected(float, float, int, int, bool);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -272,7 +276,7 @@ component PianoRollEditor inherits Rectangle {
             FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
         }
         Text {
-            text: "Click the grid to add a MIDI note. Click a note to remove it. 32 ticks per beat.";
+            text: "Click the grid to add a note, drag on empty grid to marquee-select, double-click a note to remove it. 32 ticks per beat.";
             color: Theme.text-faint;
             font-size: 10px;
         }
@@ -291,11 +295,48 @@ component PianoRollEditor inherits Rectangle {
                     border-width: 1px;
                     border-color: Theme.separator;
                 }
-                TouchArea {
-                    clicked => {
-                        let pitch = clamp(127 - floor(self.mouse-y / 10px), 0, 127);
-                        let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
-                        root.add-note(pitch, beat);
+                grid-bg := TouchArea {
+                    property <length> press-x: 0px;
+                    property <length> press-y: 0px;
+                    property <length> rect-x: 0px;
+                    property <length> rect-y: 0px;
+                    property <length> rect-w: 0px;
+                    property <length> rect-h: 0px;
+                    property <bool> marquee: false;
+                    property <bool> additive: false;
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                            press-x = self.mouse-x;
+                            press-y = self.mouse-y;
+                            marquee = false;
+                            additive = e.modifiers.shift;
+                        } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                            if (marquee) {
+                                let x1 = min(press-x, self.mouse-x);
+                                let x2 = max(press-x, self.mouse-x);
+                                let y1 = min(press-y, self.mouse-y);
+                                let y2 = max(press-y, self.mouse-y);
+                                root.marquee-selected(x1 / 32px, x2 / 32px, 127 - floor(y2 / 10px), 127 - floor(y1 / 10px), additive);
+                            } else {
+                                let pitch = clamp(127 - floor(self.mouse-y / 10px), 0, 127);
+                                let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
+                                root.add-note(pitch, beat);
+                            }
+                            marquee = false;
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            let x1 = min(press-x, self.mouse-x);
+                            let x2 = max(press-x, self.mouse-x);
+                            let y1 = min(press-y, self.mouse-y);
+                            let y2 = max(press-y, self.mouse-y);
+                            if (!marquee && (x2 - x1 > 4px || y2 - y1 > 4px)) { marquee = true; }
+                            rect-x = x1;
+                            rect-y = y1;
+                            rect-w = x2 - x1;
+                            rect-h = y2 - y1;
+                        }
                     }
                 }
                 for note in root.notes: Rectangle {
@@ -317,6 +358,9 @@ component PianoRollEditor inherits Rectangle {
                                 parent.drag-pitch = note.pitch;
                                 parent.dragged = false;
                                 root.note-selected(note.index, e.modifiers.shift);
+                                root.note-drag-begin(note.index);
+                            } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                                root.note-drag-end();
                             }
                         }
                         moved => {
@@ -345,6 +389,16 @@ component PianoRollEditor inherits Rectangle {
                             }
                         }
                     }
+                }
+                Rectangle {
+                    visible: grid-bg.marquee;
+                    x: grid-bg.rect-x;
+                    y: grid-bg.rect-y;
+                    width: grid-bg.rect-w;
+                    height: grid-bg.rect-h;
+                    background: Theme.selection.with-alpha(0.20);
+                    border-width: 1px;
+                    border-color: Theme.selection;
                 }
             }
         }
@@ -470,6 +524,9 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-note-moved(int, float, int);
     callback midi-roll-note-resized(int, float);
     callback midi-roll-note-selected(int, bool);
+    callback midi-roll-note-drag-begin(int);
+    callback midi-roll-note-drag-end();
+    callback midi-roll-marquee-selected(float, float, int, int, bool);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1011,6 +1068,9 @@ export component PropertiesPanel inherits Rectangle {
             note-moved(i, s, p) => { root.midi-roll-note-moved(i, s, p); }
             note-resized(i, l) => { root.midi-roll-note-resized(i, l); }
             note-selected(i, a) => { root.midi-roll-note-selected(i, a); }
+            note-drag-begin(i) => { root.midi-roll-note-drag-begin(i); }
+            note-drag-end => { root.midi-roll-note-drag-end(); }
+            marquee-selected(b1, b2, p1, p2, add) => { root.midi-roll-marquee-selected(b1, b2, p1, p2, add); }
         }
     }
 }
