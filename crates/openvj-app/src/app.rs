@@ -138,6 +138,7 @@ fn midi_rows(roll: &openvj_core::MidiRoll) -> Vec<MidiRowData> {
             in_scale: kind == 0 || intervals.contains(&((pitch + 12 - root) % 12)),
             label: midi_row_label(pitch, drums).into(),
             is_c: pitch % 12 == 0,
+            show_label: drums || pitch % 12 == 0,
         })
         .collect()
 }

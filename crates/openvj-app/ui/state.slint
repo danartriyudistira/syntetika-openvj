@@ -84,6 +84,8 @@ export struct MidiRowData {
     label: string,
     /// A C row, used to draw the octave separator.
     is-c: bool,
+    /// Show the label: every row on drum channels, only C rows otherwise.
+    show-label: bool,
 }
 
 export struct EffectData {

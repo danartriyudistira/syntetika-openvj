@@ -140,7 +140,9 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | `Expand` / `Shrink` | Perbesar panel editor |
 | `Quantize` | Snap semua note terpilih ke grid |
 
-- Gutters di kiri menampilkan nama nada (`C4`, `F#3`), atau nama drum GM (`Kick`, `Snare`, `CH`) pada channel 10.
+- Gutters di kiri berupa keyboard piano: tuts putih/hitam, nama oktaf (`C3`, `C4`), dan nama drum GM (`Kick`, `Snare`, `CH`) pada channel 10.
+- Bar ruler di atas grid menampilkan nomor bar dan batas loop.
+- Velocity lane memakai lollipop (garis + knob) dengan label skala `127` dan grid aktif.
 - Semua penempatan note di-snap ke Grid yang dipilih.
 - Minimap di bawah grid menampilkan seluruh roll, posisi playhead, dan area yang sedang terlihat.
 

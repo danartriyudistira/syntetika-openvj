@@ -345,12 +345,60 @@ component PianoRollEditor inherits Rectangle {
             color: Theme.text-faint;
             font-size: 10px;
         }
+        // Bar ruler with the loop range.
+        HorizontalLayout {
+            height: 22px;
+            spacing: 0px;
+            Rectangle {
+                width: 90px;
+                background: Theme.panel-2;
+                border-width: 1px;
+                border-color: Theme.separator;
+            }
+            Rectangle {
+                clip: true;
+                horizontal-stretch: 1;
+                background: Theme.panel-2;
+                border-width: 1px;
+                border-color: Theme.separator;
+                Rectangle {
+                    x: -grid-flick.content-x;
+                    width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
+                    height: parent.height;
+                    for b[i] in root.bars: Rectangle {
+                        x: i * 4 * root.beat-w;
+                        width: 1px;
+                        height: parent.height;
+                        background: Theme.separator;
+                        Text {
+                            x: 4px;
+                            text: (i + 1);
+                            color: Theme.text-faint;
+                            font-size: 9px;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Rectangle {
+                        x: root.loop-start * root.beat-w;
+                        width: 2px;
+                        height: parent.height;
+                        background: Theme.accent;
+                    }
+                    Rectangle {
+                        x: root.loop-end * root.beat-w - 2px;
+                        width: 2px;
+                        height: parent.height;
+                        background: Theme.accent;
+                    }
+                }
+            }
+        }
         HorizontalLayout {
             vertical-stretch: 1;
             spacing: 0px;
-            // Pitch gutter: note or drum names, scrolled with the grid.
+            // Piano keyboard and pitch names, scrolled with the grid.
             Rectangle {
-                width: 64px;
+                width: 90px;
                 clip: true;
                 background: Theme.panel-2;
                 border-width: 1px;
@@ -363,22 +411,33 @@ component PianoRollEditor inherits Rectangle {
                         y: i * root.row-h;
                         height: root.row-h;
                         width: parent.width;
-                        background: !row.in-scale ? #0d0f11 : row.black ? #121417 : transparent;
+                        Rectangle {
+                            visible: !row.black;
+                            width: 44px;
+                            height: parent.height;
+                            background: #e9e6df;
+                            border-width: 1px;
+                            border-color: #4a4a48;
+                            border-radius: 1px;
+                        }
+                        Rectangle {
+                            visible: row.black;
+                            width: 29px;
+                            height: parent.height;
+                            background: #14161a;
+                            border-width: 1px;
+                            border-color: #000000;
+                            border-radius: 1px;
+                        }
                         Text {
-                            x: 5px;
-                            width: parent.width - 8px;
+                            x: 47px;
+                            width: 40px;
                             text: row.label;
+                            visible: row.show-label;
                             color: row.in-scale ? Theme.text-dim : Theme.text-faint;
                             font-size: 9px;
                             vertical-alignment: center;
                             overflow: elide;
-                        }
-                        Rectangle {
-                            visible: row.is-c;
-                            y: parent.height - 1px;
-                            height: 1px;
-                            width: parent.width;
-                            background: Theme.separator;
                         }
                     }
                 }
@@ -563,6 +622,14 @@ component PianoRollEditor inherits Rectangle {
             background: Theme.bg;
             border-width: 1px;
             border-color: Theme.separator;
+            Text { x: 4px; y: 1px; text: "127"; color: Theme.text-faint; font-size: 8px; }
+            Text {
+                x: parent.width - 32px;
+                y: parent.height - 13px;
+                text: root.grid == 4 ? "1/4" : root.grid == 8 ? "1/8" : root.grid == 16 ? "1/16" : "1/32";
+                color: Theme.text-faint;
+                font-size: 8px;
+            }
             Rectangle {
                 x: -grid-flick.content-x;
                 width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
@@ -575,11 +642,20 @@ component PianoRollEditor inherits Rectangle {
                 }
                 for note in root.notes: Rectangle {
                     x: note.start * root.beat-w;
-                    width: max(3px, 4px * root.zoom-x);
-                    y: (1.0 - note.velocity / 127.0) * (parent.height - 4px);
-                    height: max(2px, note.velocity / 127.0 * (parent.height - 4px));
+                    width: 1px;
+                    y: (1.0 - note.velocity / 127.0) * (parent.height - 12px) + 4px;
+                    height: max(1px, parent.height - ((1.0 - note.velocity / 127.0) * (parent.height - 12px) + 4px));
                     background: note.selected ? Theme.selection : Theme.accent;
-                    border-radius: 1px;
+                }
+                for note in root.notes: Rectangle {
+                    x: note.start * root.beat-w - 3px;
+                    width: 7px;
+                    height: 7px;
+                    y: (1.0 - note.velocity / 127.0) * (parent.height - 12px) - 3px + 4px;
+                    border-radius: 4px;
+                    background: note.selected ? Theme.selection : Theme.accent;
+                    border-width: 1px;
+                    border-color: Theme.bg;
                 }
                 lane-ta := TouchArea {
                     pointer-event(e) => {
