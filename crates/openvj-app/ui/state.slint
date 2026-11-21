@@ -80,6 +80,10 @@ export struct MidiRowData {
     pitch: int,
     black: bool,
     in-scale: bool,
+    /// Note name, or a drum name on drum channels.
+    label: string,
+    /// A C row, used to draw the octave separator.
+    is-c: bool,
 }
 
 export struct EffectData {

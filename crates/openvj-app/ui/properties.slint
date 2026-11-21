@@ -226,6 +226,14 @@ component PianoRollEditor inherits Rectangle {
     in property <bool> fold;
     in property <int> scale-root;
     in property <int> scale-kind;
+    /// 0 = Draw, 1 = Select, 2 = Erase.
+    in property <int> mode;
+    in property <float> zoom-x: 1;
+    in property <float> zoom-y: 1;
+    in property <bool> expanded;
+    // One grid row and one beat, after zoom.
+    property <length> row-h: 12px * root.zoom-y;
+    property <length> beat-w: 32px * root.zoom-x;
     callback enabled-toggled();
     callback device-picked(int);
     callback channel-picked(int);
@@ -248,6 +256,12 @@ component PianoRollEditor inherits Rectangle {
     callback fold-toggled();
     callback scale-root-picked(int);
     callback scale-kind-picked(int);
+    callback mode-picked(int);
+    callback zoom-x-changed(float);
+    callback zoom-y-changed(float);
+    callback expand-toggled();
+    callback quantize();
+    callback deselect();
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -259,7 +273,12 @@ component PianoRollEditor inherits Rectangle {
 
     // Grid row under a pointer y, clamped to the visible rows.
     pure function row-at(y: length, count: int) -> int {
-        return min(max(round(y / 10px), 0), count - 1);
+        return min(max(floor(y / root.row-h), 0), count - 1);
+    }
+
+    // Beat under a pointer x.
+    pure function beat-at(x: length) -> float {
+        return max(0.0, x / root.beat-w);
     }
 
     VerticalLayout {
@@ -273,30 +292,37 @@ component PianoRollEditor inherits Rectangle {
                 active: root.enabled;
                 clicked => { root.enabled-toggled(); }
             }
-            Text { text: "Output"; color: Theme.text-dim; vertical-alignment: center; }
             BlendPicker { modes: root.devices.length > 0 ? root.devices : ["No MIDI output"]; current: root.device-index; picked(i) => { root.device-picked(i); } }
-            Text { text: "Channel"; color: Theme.text-dim; vertical-alignment: center; }
             BlendPicker {
                 modes: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"];
                 current: root.channel;
                 picked(i) => { root.channel-picked(i); }
             }
-            FlatButton { text: "Clear"; clicked => { root.clear(); } }
-            Text { text: "Grid"; color: Theme.text-dim; vertical-alignment: center; }
-            BlendPicker { modes: ["1/4", "1/8", "1/16", "1/32"]; current: root.grid == 4 ? 0 : root.grid == 8 ? 1 : root.grid == 16 ? 2 : 3; picked(i) => { root.grid-picked(i == 0 ? 4 : i == 1 ? 8 : i == 2 ? 16 : 32); } }
-            Text { text: "Bars"; color: Theme.text-dim; vertical-alignment: center; }
-            FlatButton { text: "−"; clicked => { root.bars-changed(root.bars - 1); } }
-            Text { text: root.bars; color: Theme.text; vertical-alignment: center; }
-            FlatButton { text: "+"; clicked => { root.bars-changed(root.bars + 1); } }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            FlatButton { text: "Draw"; active: root.mode == 0; clicked => { root.mode-picked(0); } }
+            FlatButton { text: "Select"; active: root.mode == 1; clicked => { root.mode-picked(1); } }
+            FlatButton { text: "Erase"; active: root.mode == 2; clicked => { root.mode-picked(2); } }
         }
         HorizontalLayout {
             height: 22px;
             spacing: 6px;
+            Text { text: "Grid"; color: Theme.text-dim; vertical-alignment: center; }
+            BlendPicker { modes: ["1/4", "1/8", "1/16", "1/32"]; current: root.grid == 4 ? 0 : root.grid == 8 ? 1 : root.grid == 16 ? 2 : 3; picked(i) => { root.grid-picked(i == 0 ? 4 : i == 1 ? 8 : i == 2 ? 16 : 32); } }
+            FlatButton { text: "−"; clicked => { root.bars-changed(root.bars - 1); } }
+            Text { text: root.bars; color: Theme.text; vertical-alignment: center; }
+            FlatButton { text: "+"; clicked => { root.bars-changed(root.bars + 1); } }
             Text { text: "Loop"; color: Theme.text-dim; vertical-alignment: center; }
             Text { text: root.loop-start + " – " + root.loop-end; color: Theme.text; vertical-alignment: center; }
             FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
             Rectangle { horizontal-stretch: 1; background: transparent; }
             FlatButton { text: "Fold"; active: root.fold; clicked => { root.fold-toggled(); } }
+            FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
+            FlatButton { text: "Clear"; clicked => { root.clear(); } }
+        }
+        HorizontalLayout {
+            height: 22px;
+            spacing: 6px;
+            Text { text: "Key"; color: Theme.text-dim; vertical-alignment: center; }
             BlendPicker {
                 modes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 current: root.scale-root;
@@ -307,22 +333,67 @@ component PianoRollEditor inherits Rectangle {
                 current: root.scale-kind;
                 picked(i) => { root.scale-kind-picked(i); }
             }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            FlatButton { text: "Zoom −"; clicked => { root.zoom-x-changed(max(0.5, root.zoom-x / 1.25)); } }
+            FlatButton { text: "Zoom +"; clicked => { root.zoom-x-changed(min(4.0, root.zoom-x * 1.25)); } }
+            FlatButton { text: "Rows −"; clicked => { root.zoom-y-changed(max(0.6, root.zoom-y / 1.2)); } }
+            FlatButton { text: "Rows +"; clicked => { root.zoom-y-changed(min(3.0, root.zoom-y * 1.2)); } }
+            FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
         }
         Text {
-            text: "Click = add · drag empty = marquee · Ctrl+A all · Del remove · Ctrl+C/V/D · Ctrl+Z/Y undo/redo";
+            text: root.mode == 0 ? "Draw: click adds, drag selects" : root.mode == 1 ? "Select: drag marquee, click a note to pick" : "Erase: click a note to delete";
             color: Theme.text-faint;
             font-size: 10px;
         }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 0px;
+            // Pitch gutter: note or drum names, scrolled with the grid.
+            Rectangle {
+                width: 64px;
+                clip: true;
+                background: Theme.panel-2;
+                border-width: 1px;
+                border-color: Theme.separator;
+                Rectangle {
+                    y: -grid-flick.content-y;
+                    width: parent.width;
+                    height: max(40px, root.rows.length * root.row-h);
+                    for row[i] in root.rows: Rectangle {
+                        y: i * root.row-h;
+                        height: root.row-h;
+                        width: parent.width;
+                        background: !row.in-scale ? #0d0f11 : row.black ? #121417 : transparent;
+                        Text {
+                            x: 5px;
+                            width: parent.width - 8px;
+                            text: row.label;
+                            color: row.in-scale ? Theme.text-dim : Theme.text-faint;
+                            font-size: 9px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Rectangle {
+                            visible: row.is-c;
+                            y: parent.height - 1px;
+                            height: 1px;
+                            width: parent.width;
+                            background: Theme.separator;
+                        }
+                    }
+                }
+            }
         grid-flick := Flickable {
             vertical-stretch: 1;
-            content-height: max(40px, root.rows.length * 10px);
+            horizontal-stretch: 1;
+            content-height: max(40px, root.rows.length * root.row-h);
             Rectangle {
-                width: max(parent.width, root.bars * 128px + 80px);
-                height: max(40px, root.rows.length * 10px);
+                width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
+                height: max(40px, root.rows.length * root.row-h);
                 background: Theme.bg;
                 for row[i] in root.rows: Rectangle {
-                    y: i * 10px;
-                    height: 10px;
+                    y: i * root.row-h;
+                    height: root.row-h;
                     width: parent.width;
                     background: !row.in-scale
                         ? (row.black ? #0a0c0e : #0d0f11)
@@ -353,11 +424,12 @@ component PianoRollEditor inherits Rectangle {
                                 let y2 = max(press-y, self.mouse-y);
                                 let p1 = root.rows[root.row-at(y2, root.rows.length)].pitch;
                                 let p2 = root.rows[root.row-at(y1, root.rows.length)].pitch;
-                                root.marquee-selected(x1 / 32px, x2 / 32px, min(p1, p2), max(p1, p2), additive);
-                            } else {
+                                root.marquee-selected(root.beat-at(x1), root.beat-at(x2), min(p1, p2), max(p1, p2), additive);
+                            } else if (root.mode == 0) {
                                 let row = root.row-at(self.mouse-y, root.rows.length);
-                                let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
-                                root.add-note(root.rows[row].pitch, beat);
+                                root.add-note(root.rows[row].pitch, root.beat-at(self.mouse-x));
+                            } else if (root.mode == 1) {
+                                root.deselect();
                             }
                             marquee = false;
                         }
@@ -381,36 +453,40 @@ component PianoRollEditor inherits Rectangle {
                     property <int> drag-pitch: note.pitch;
                     property <float> drag-length: note.length;
                     property <bool> dragged: false;
-                    x: note.start * 32px;
-                    y: note.row * 10px;
-                    width: max(6px, note.length * 32px);
-                    height: 8px;
+                    x: note.start * root.beat-w;
+                    y: note.row * root.row-h;
+                    width: max(10px, note.length * root.beat-w);
+                    height: max(6px, root.row-h - 2px);
                     border-radius: 2px;
                     background: note.selected ? Theme.selection : Theme.accent;
                     opacity: 0.45 + note.velocity / 255.0;
                     TouchArea {
                         pointer-event(e) => {
                             if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
-                                parent.drag-start = note.start;
-                                parent.drag-pitch = note.pitch;
-                                parent.dragged = false;
-                                root.note-selected(note.index, e.modifiers.shift);
-                                root.note-drag-begin(note.index);
+                                if (root.mode == 2) {
+                                    root.delete-note(note.index);
+                                } else {
+                                    parent.drag-start = note.start;
+                                    parent.drag-pitch = note.pitch;
+                                    parent.dragged = false;
+                                    root.note-selected(note.index, e.modifiers.shift);
+                                    root.note-drag-begin(note.index);
+                                }
                             } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
                                 root.note-drag-end();
                             }
                         }
                         moved => {
                             parent.dragged = true;
-                            let start = max(0, floor((parent.drag-start * 32px + self.mouse-x - self.pressed-x) / 32px * 32) / 32);
-                            let pitch = clamp(parent.drag-pitch - floor((self.mouse-y - self.pressed-y) / 10px), 0, 127);
+                            let start = max(0, parent.drag-start + (self.mouse-x - self.pressed-x) / root.beat-w);
+                            let pitch = clamp(parent.drag-pitch - floor((self.mouse-y - self.pressed-y) / root.row-h), 0, 127);
                             root.note-moved(note.index, start, pitch);
                         }
                         double-clicked => { root.delete-note(note.index); }
                     }
                     Rectangle {
-                        x: max(0px, parent.width - 6px);
-                        width: 6px;
+                        x: max(0px, parent.width - 8px);
+                        width: 8px;
                         height: parent.height;
                         background: Theme.on-accent.with-alpha(0.45);
                         TouchArea {
@@ -422,7 +498,7 @@ component PianoRollEditor inherits Rectangle {
                                 }
                             }
                             moved => {
-                                let length = max(1.0 / 32.0, floor((origin * 32px + self.mouse-x - self.pressed-x) / 32px * 32) / 32);
+                                let length = max(0.0, origin + (self.mouse-x - self.pressed-x) / root.beat-w);
                                 root.note-resized(note.index, length);
                             }
                         }
@@ -440,12 +516,13 @@ component PianoRollEditor inherits Rectangle {
                 }
                 Rectangle {
                     visible: root.playing;
-                    x: root.playhead * 32px;
+                    x: root.playhead * root.beat-w;
                     width: 1px;
                     height: parent.height;
                     background: Theme.playing;
                 }
             }
+        }
         }
         // Minimap: the whole roll, with the playhead.
         Rectangle {
@@ -468,6 +545,15 @@ component PianoRollEditor inherits Rectangle {
                 height: parent.height;
                 background: Theme.playing;
             }
+            // The part of the roll currently visible in the grid.
+            Rectangle {
+                x: (grid-flick.content-x / max(1px, root.bars * 4 * root.beat-w + 80px)) * parent.width;
+                width: max(2px, (grid-flick.width / max(1px, root.bars * 4 * root.beat-w + 80px)) * parent.width);
+                height: parent.height;
+                background: #ffffff0a;
+                border-width: 1px;
+                border-color: Theme.border;
+            }
         }
         // Velocity lane: bars mirror each note's velocity. Drag to edit the
         // note nearest the pointer (selected notes take priority).
@@ -479,11 +565,17 @@ component PianoRollEditor inherits Rectangle {
             border-color: Theme.separator;
             Rectangle {
                 x: -grid-flick.content-x;
-                width: max(parent.width, root.bars * 128px + 80px);
+                width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
                 height: parent.height;
+                for g[i] in 4: Rectangle {
+                    y: i * (parent.height / 4.0);
+                    width: parent.width;
+                    height: 1px;
+                    background: #ffffff10;
+                }
                 for note in root.notes: Rectangle {
-                    x: note.start * 32px;
-                    width: 5px;
+                    x: note.start * root.beat-w;
+                    width: max(3px, 4px * root.zoom-x);
                     y: (1.0 - note.velocity / 127.0) * (parent.height - 4px);
                     height: max(2px, note.velocity / 127.0 * (parent.height - 4px));
                     background: note.selected ? Theme.selection : Theme.accent;
@@ -492,14 +584,14 @@ component PianoRollEditor inherits Rectangle {
                 lane-ta := TouchArea {
                     pointer-event(e) => {
                         if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
-                            root.velocity-begin(self.mouse-x / 32px);
-                            root.velocity-set(self.mouse-x / 32px, root.velocity-at(self.mouse-y, self.height));
+                            root.velocity-begin(root.beat-at(self.mouse-x));
+                            root.velocity-set(root.beat-at(self.mouse-x), root.velocity-at(self.mouse-y, self.height));
                         } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
                             root.note-drag-end();
                         }
                     }
                     moved => {
-                        root.velocity-set(self.mouse-x / 32px, root.velocity-at(self.mouse-y, self.height));
+                        root.velocity-set(root.beat-at(self.mouse-x), root.velocity-at(self.mouse-y, self.height));
                     }
                 }
             }
@@ -592,6 +684,10 @@ export component PropertiesPanel inherits Rectangle {
     in property <bool> midi-fold;
     in property <int> midi-scale-root;
     in property <int> midi-scale-kind;
+    in property <int> midi-mode;
+    in property <float> midi-zoom-x;
+    in property <float> midi-zoom-y;
+    in property <bool> piano-expanded;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -641,6 +737,12 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-fold-toggled();
     callback midi-roll-scale-root-picked(int);
     callback midi-roll-scale-kind-picked(int);
+    callback midi-roll-mode-picked(int);
+    callback midi-roll-zoom-x-changed(float);
+    callback midi-roll-zoom-y-changed(float);
+    callback midi-roll-expand-toggled();
+    callback midi-roll-quantize();
+    callback midi-roll-deselect();
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1176,6 +1278,10 @@ export component PropertiesPanel inherits Rectangle {
             fold: root.midi-fold;
             scale-root: root.midi-scale-root;
             scale-kind: root.midi-scale-kind;
+            mode: root.midi-mode;
+            zoom-x: root.midi-zoom-x;
+            zoom-y: root.midi-zoom-y;
+            expanded: root.piano-expanded;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
@@ -1197,6 +1303,12 @@ export component PropertiesPanel inherits Rectangle {
             fold-toggled => { root.midi-roll-fold-toggled(); }
             scale-root-picked(i) => { root.midi-roll-scale-root-picked(i); }
             scale-kind-picked(i) => { root.midi-roll-scale-kind-picked(i); }
+            mode-picked(i) => { root.midi-roll-mode-picked(i); }
+            zoom-x-changed(z) => { root.midi-roll-zoom-x-changed(z); }
+            zoom-y-changed(z) => { root.midi-roll-zoom-y-changed(z); }
+            expand-toggled => { root.midi-roll-expand-toggled(); }
+            quantize => { root.midi-roll-quantize(); }
+            deselect => { root.midi-roll-deselect(); }
         }
     }
 }

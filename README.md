@@ -26,7 +26,7 @@ Syntetika bukan salinan kode, aset, atau identitas proprietary Resolume. Dukunga
 - Blend mode, opacity, bypass, solo, transform, crossfade, dan feedback
 - Playback Loop, Bounce, Random, Play Once, Toggle, dan Piano
 - Beat sync, BPM, audio FFT, audio-reactive mapping, serta MIDI input
-- Piano Roll MIDI per clip: velocity lane, marquee select, geser banyak note, undo/redo, copy/paste/duplicate, playhead, fold, scale assist, dan minimap
+- Piano Roll MIDI per clip: velocity lane, marquee select, geser banyak note, undo/redo, copy/paste/duplicate, playhead, fold, scale assist, minimap, mode Draw/Select/Erase, zoom, dan quantize
 - Import komposisi Resolume `.avc` secara parsial
 - Output fullscreen dan dasar projection mapping
 - Preview dan output monitor
@@ -124,7 +124,7 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 
 | Kontrol | Fungsi |
 |---|---|
-| Klik grid | Tambah note |
+| Mode `Draw` / `Select` / `Erase` | Klik grid menambah note / drag marquee / klik note menghapus |
 | Drag di grid kosong | Marquee selection |
 | `Shift` + klik note | Tambah atau lepas note dari selection |
 | Drag note | Geser seluruh note terpilih |
@@ -135,8 +135,14 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` | Undo / redo |
 | Tombol `Fold` | Tampilkan hanya pitch yang dipakai clip |
 | Picker `Key` + `Scale` | Sorot baris yang masuk skala; baris di luar skala diredupkan |
+| `Zoom −` / `Zoom +` | Skala horizontal grid (50%–400%) |
+| `Rows −` / `Rows +` | Tinggi baris pitch |
+| `Expand` / `Shrink` | Perbesar panel editor |
+| `Quantize` | Snap semua note terpilih ke grid |
 
-Minimap di bawah grid menampilkan seluruh roll beserta posisi playhead.
+- Gutters di kiri menampilkan nama nada (`C4`, `F#3`), atau nama drum GM (`Kick`, `Snare`, `CH`) pada channel 10.
+- Semua penempatan note di-snap ke Grid yang dipilih.
+- Minimap di bawah grid menampilkan seluruh roll, posisi playhead, dan area yang sedang terlihat.
 
 Paste dan duplicate memakai posisi playhead clip, dibulatkan ke grid 1/16, dan note yang melewati batas bar dilewati.
 

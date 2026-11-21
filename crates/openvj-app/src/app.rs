@@ -57,8 +57,63 @@ const MIDI_SCALES: [&[u8]; 7] = [
     &[0, 3, 5, 6, 7, 10],    // Blues
 ];
 
+fn snap_ticks(tick: i64, step: i64) -> i64 {
+    if step <= 1 {
+        return tick;
+    }
+    ((tick + step / 2) / step) * step
+}
+
+/// Snap step in ticks, derived from the roll's grid (4..32 steps per bar).
+fn midi_step(roll: &openvj_core::MidiRoll) -> i64 {
+    ((MIDI_TICKS_PER_BEAT * 4) / roll.grid.clamp(4, 32)) as i64
+}
+
 fn midi_pitch_black(pitch: u8) -> bool {
     matches!(pitch % 12, 1 | 3 | 6 | 8 | 10)
+}
+
+const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+/// General MIDI drum names, for the pitch gutter on drum channels.
+fn drum_name(pitch: u8) -> Option<&'static str> {
+    Some(match pitch {
+        35 | 36 => "Kick",
+        37 => "Rim",
+        38 => "Snare",
+        39 => "Clap",
+        40 => "E Snare",
+        41 => "Low Tom",
+        42 => "CH",
+        43 => "Hi Tom",
+        44 => "PH",
+        45 => "Lo Tom",
+        46 => "OH",
+        47 => "LM Tom",
+        48 => "HM Tom",
+        49 => "Crash",
+        50 => "Hi Tom",
+        51 => "Ride",
+        52 => "China",
+        53 => "Bell",
+        54 => "Tamb",
+        55 => "Splash",
+        56 => "Cowbell",
+        57 => "Crash 2",
+        58 => "Vibra",
+        59 => "Ride 2",
+        _ => return None,
+    })
+}
+
+fn midi_row_label(pitch: u8, drums: bool) -> String {
+    if drums {
+        if let Some(name) = drum_name(pitch) {
+            return name.to_string();
+        }
+    }
+    let octave = pitch as i32 / 12 - 1;
+    format!("{}{}", NOTE_NAMES[(pitch % 12) as usize], octave)
 }
 
 /// Rows the Piano Roll draws, top to bottom. A folded roll lists only used pitches.
@@ -66,6 +121,7 @@ fn midi_rows(roll: &openvj_core::MidiRoll) -> Vec<MidiRowData> {
     let kind = (roll.scale_kind as usize).min(MIDI_SCALES.len() - 1);
     let intervals = MIDI_SCALES[kind];
     let root = roll.scale_root % 12;
+    let drums = roll.channel == 9;
     let pitches: Vec<u8> = if roll.fold && !roll.notes.is_empty() {
         let mut used: Vec<u8> = roll.notes.iter().map(|n| n.pitch).collect();
         used.sort_unstable();
@@ -80,6 +136,8 @@ fn midi_rows(roll: &openvj_core::MidiRoll) -> Vec<MidiRowData> {
             pitch: pitch as i32,
             black: midi_pitch_black(pitch),
             in_scale: kind == 0 || intervals.contains(&((pitch + 12 - root) % 12)),
+            label: midi_row_label(pitch, drums).into(),
+            is_c: pitch % 12 == 0,
         })
         .collect()
 }
@@ -281,6 +339,10 @@ pub struct App {
     midi_clipboard: Vec<openvj_core::MidiNote>,
     midi_playhead: f32,
     midi_playing: bool,
+    midi_mode: i32,
+    midi_zoom_x: f32,
+    midi_zoom_y: f32,
+    piano_expanded: bool,
     control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
@@ -471,6 +533,10 @@ impl App {
             midi_clipboard: Vec::new(),
             midi_playhead: 0.0,
             midi_playing: false,
+            midi_mode: 0,
+            midi_zoom_x: 1.0,
+            midi_zoom_y: 1.0,
+            piano_expanded: false,
             control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
@@ -1682,6 +1748,10 @@ impl App {
         ui.set_midi_device_index(self.midi_device_index as i32);
         ui.set_midi_notes(ModelRc::from(self.midi_notes.clone()));
         ui.set_midi_rows(ModelRc::from(self.midi_rows.clone()));
+        ui.set_midi_mode(self.midi_mode);
+        ui.set_midi_zoom_x(self.midi_zoom_x);
+        ui.set_midi_zoom_y(self.midi_zoom_y);
+        ui.set_piano_expanded(self.piano_expanded);
         let source_url = match clip.map(|c| &c.source) {
             Some(ClipSource::Isf { generator }) => generator.ty().map(|t| t.def.source.clone()).unwrap_or_default(),
             _ => String::new(),
@@ -2262,6 +2332,14 @@ impl App {
                             self.midi_roll_scale_kind(kind.max(0) as usize);
                             serde_json::json!({"ok": true, "root": root, "kind": kind})
                         }
+                        "quantize" => {
+                            self.midi_quantize();
+                            serde_json::json!({"ok": true})
+                        }
+                        "expand" => {
+                            self.piano_expand_toggled();
+                            serde_json::json!({"ok": true, "expanded": self.piano_expanded})
+                        }
                         _ => serde_json::json!({"ok": false, "error": "unknown midi edit op"}),
                     }
                 }
@@ -2331,6 +2409,52 @@ impl App {
             clip.midi_roll.scale_kind = kind.min(MIDI_SCALES.len() - 1) as u8;
             self.props_dirty = true;
         }
+    }
+
+    pub fn midi_mode_picked(&mut self, mode: i32) {
+        self.midi_mode = mode.clamp(0, 2);
+        self.props_dirty = true;
+    }
+
+    pub fn midi_zoom_x_changed(&mut self, zoom: f32) {
+        self.midi_zoom_x = zoom.clamp(0.5, 4.0);
+        self.props_dirty = true;
+    }
+
+    pub fn midi_zoom_y_changed(&mut self, zoom: f32) {
+        self.midi_zoom_y = zoom.clamp(0.6, 3.0);
+        self.props_dirty = true;
+    }
+
+    pub fn piano_expand_toggled(&mut self) {
+        self.piano_expanded = !self.piano_expanded;
+        self.props_dirty = true;
+    }
+
+    /// Snaps every selected note's start to the grid (all notes when nothing is selected).
+    pub fn midi_quantize(&mut self) {
+        let Some(step) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| midi_step(&clip.midi_roll))
+        else {
+            return;
+        };
+        self.midi_snapshot();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return };
+        let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
+        let targets: Vec<usize> = if self.midi_selection.is_empty() {
+            (0..clip.midi_roll.notes.len()).collect()
+        } else {
+            self.midi_selection.iter().copied().collect()
+        };
+        for i in targets {
+            if let Some(note) = clip.midi_roll.notes.get_mut(i) {
+                let limit = (max - note.length_ticks.max(1) as i64).max(0);
+                note.start_tick = snap_ticks(note.start_tick as i64, step).clamp(0, limit) as u32;
+            }
+        }
+        self.props_dirty = true;
     }
 
     /// Drops per-clip edit state when the Piano Roll moves to another clip.
@@ -2432,10 +2556,16 @@ impl App {
             return false;
         }
         self.midi_snapshot();
-        let grid = (MIDI_TICKS_PER_BEAT / 4).max(1) as i64;
+        let Some(grid) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| midi_step(&clip.midi_roll))
+        else {
+            return false;
+        };
         let base = self.midi_clipboard.iter().map(|n| n.start_tick).min().unwrap_or(0);
         let raw = (self.midi_playhead.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
-        let target = (raw + grid / 2) / grid * grid;
+        let target = snap_ticks(raw, grid);
         let offset = target - base as i64;
         let notes = self.midi_clipboard.clone();
         let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
@@ -2465,11 +2595,15 @@ impl App {
             return false;
         }
         self.midi_snapshot();
-        let grid = (MIDI_TICKS_PER_BEAT / 4).max(1) as i64;
+        let grid = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| midi_step(&clip.midi_roll))
+            .unwrap_or(8);
         let start_min = picked.iter().map(|n| n.start_tick).min().unwrap_or(0);
         let end_max = picked.iter().map(|n| n.start_tick + n.length_ticks).max().unwrap_or(start_min);
         let raw_span = end_max.saturating_sub(start_min).max(1) as i64;
-        let span = (raw_span + grid - 1) / grid * grid;
+        let span = snap_ticks(raw_span + grid - 1, grid);
         let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
         let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
         let before = clip.midi_roll.notes.len();
@@ -2572,14 +2706,15 @@ impl App {
     }
 
     pub fn midi_roll_note_added_vel(&mut self, pitch: i32, start: f32, velocity: i32) {
-        let Some(max_tick) = self
+        let Some((max_tick, step)) = self
             .selected
             .and_then(|(l, c)| self.comp.clip_mut(l, c))
-            .map(|clip| clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4)
+            .map(|clip| (clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4, midi_step(&clip.midi_roll)))
         else {
             return;
         };
-        let start_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+        let raw = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let start_tick = snap_ticks(raw, step).max(0) as u32;
         if start_tick >= max_tick { return; }
         self.midi_snapshot();
         self.midi_selection.clear();
@@ -2690,7 +2825,15 @@ impl App {
     pub fn midi_roll_note_moved(&mut self, index: usize, start: f32, pitch: i32) {
         let Some(origins) = self.midi_drag.clone() else { return };
         let Some(&(origin_tick, origin_pitch)) = origins.get(&index) else { return };
-        let target_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let Some(step) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| midi_step(&clip.midi_roll))
+        else {
+            return;
+        };
+        let raw = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let target_tick = snap_ticks(raw, step);
         let delta_tick = target_tick - origin_tick as i64;
         let delta_pitch = pitch - origin_pitch as i32;
         if delta_tick == 0 && delta_pitch == 0 {
@@ -2740,9 +2883,12 @@ impl App {
 
     pub fn midi_roll_note_resized(&mut self, index: usize, length: f32) {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            let step = midi_step(&clip.midi_roll);
+            let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
             if let Some(note) = clip.midi_roll.notes.get_mut(index) {
-                note.length_ticks = (length.max(1.0 / MIDI_TICKS_PER_BEAT as f32)
-                    * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+                let raw = (length.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+                let limit = (max - note.start_tick as i64).max(step);
+                note.length_ticks = snap_ticks(raw, step).clamp(step, limit) as u32;
                 self.props_dirty = true;
             }
         }

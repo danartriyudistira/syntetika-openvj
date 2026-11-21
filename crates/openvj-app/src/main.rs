@@ -506,6 +506,12 @@ fn main() -> Result<()> {
     on!(on_midi_roll_fold_toggled, |a| a.midi_roll_fold_toggled());
     on!(on_midi_roll_scale_root_picked, |a, i: i32| a.midi_roll_scale_root(i.max(0) as usize));
     on!(on_midi_roll_scale_kind_picked, |a, i: i32| a.midi_roll_scale_kind(i.max(0) as usize));
+    on!(on_midi_roll_mode_picked, |a, i: i32| a.midi_mode_picked(i));
+    on!(on_midi_roll_zoom_x_changed, |a, z: f32| a.midi_zoom_x_changed(z));
+    on!(on_midi_roll_zoom_y_changed, |a, z: f32| a.midi_zoom_y_changed(z));
+    on!(on_midi_roll_expand_toggled, |a| a.piano_expand_toggled());
+    on!(on_midi_roll_quantize, |a| a.midi_quantize());
+    on!(on_midi_roll_deselect, |a| a.midi_clear_selection());
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));

@@ -1436,6 +1436,10 @@ export component MainWindow inherits Window {
     in property <bool> midi-fold;
     in property <int> midi-scale-root;
     in property <int> midi-scale-kind;
+    in property <int> midi-mode;
+    in property <float> midi-zoom-x;
+    in property <float> midi-zoom-y;
+    in-out property <bool> piano-expanded;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1525,6 +1529,12 @@ export component MainWindow inherits Window {
     callback midi-roll-fold-toggled();
     callback midi-roll-scale-root-picked(int);
     callback midi-roll-scale-kind-picked(int);
+    callback midi-roll-mode-picked(int);
+    callback midi-roll-zoom-x-changed(float);
+    callback midi-roll-zoom-y-changed(float);
+    callback midi-roll-expand-toggled();
+    callback midi-roll-quantize();
+    callback midi-roll-deselect();
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1916,7 +1926,7 @@ export component MainWindow inherits Window {
 
             // Mixer: properties dock and browser.
             if root.layout == Layouts.mixer: HorizontalLayout {
-                height: 318px;
+                height: root.piano-expanded && root.props-tab == 4 ? 600px : 318px;
                 padding-left: 8px;
                 padding-right: 8px;
                 padding-bottom: 8px;
@@ -1996,6 +2006,10 @@ export component MainWindow inherits Window {
                      midi-fold: root.midi-fold;
                      midi-scale-root: root.midi-scale-root;
                      midi-scale-kind: root.midi-scale-kind;
+                     midi-mode: root.midi-mode;
+                     midi-zoom-x: root.midi-zoom-x;
+                     midi-zoom-y: root.midi-zoom-y;
+                     piano-expanded: root.piano-expanded;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -2043,6 +2057,12 @@ export component MainWindow inherits Window {
                      midi-roll-fold-toggled => { root.midi-roll-fold-toggled(); }
                      midi-roll-scale-root-picked(i) => { root.midi-roll-scale-root-picked(i); }
                      midi-roll-scale-kind-picked(i) => { root.midi-roll-scale-kind-picked(i); }
+                     midi-roll-mode-picked(i) => { root.midi-roll-mode-picked(i); }
+                     midi-roll-zoom-x-changed(z) => { root.midi-roll-zoom-x-changed(z); }
+                     midi-roll-zoom-y-changed(z) => { root.midi-roll-zoom-y-changed(z); }
+                     midi-roll-expand-toggled => { root.midi-roll-expand-toggled(); }
+                     midi-roll-quantize => { root.midi-roll-quantize(); }
+                     midi-roll-deselect => { root.midi-roll-deselect(); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }
