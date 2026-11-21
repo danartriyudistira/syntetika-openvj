@@ -2341,6 +2341,16 @@ impl App {
                             self.piano_expand_toggled();
                             serde_json::json!({"ok": true, "expanded": self.piano_expanded})
                         }
+                        "transport" => {
+                            self.midi_roll_transport();
+                            let playing = self
+                                .selected
+                                .and_then(|(l, c)| self.comp.clip(l, c))
+                                .map(|c| c.id)
+                                .zip(self.selected.and_then(|(l, _)| self.comp.layers.get(l)).and_then(|l| l.active).map(|p| p.clip_id))
+                                .is_some_and(|(id, active)| id == active);
+                            serde_json::json!({"ok": true, "playing": playing})
+                        }
                         _ => serde_json::json!({"ok": false, "error": "unknown midi edit op"}),
                     }
                 }
@@ -2430,6 +2440,26 @@ impl App {
     pub fn piano_expand_toggled(&mut self) {
         self.piano_expanded = !self.piano_expanded;
         self.props_dirty = true;
+    }
+
+    /// Play/stop for the selected clip, from the Piano Roll footer.
+    pub fn midi_roll_transport(&mut self) {
+        let Some((layer, column)) = self.selected else { return };
+        let Some(clip) = self.comp.clip(layer, column) else { return };
+        let id = clip.id;
+        let playing = self
+            .comp
+            .layers
+            .get(layer)
+            .and_then(|l| l.active)
+            .is_some_and(|p| p.clip_id == id);
+        let now = self.now();
+        if playing {
+            self.comp.clear_layer(layer, now);
+        } else {
+            self.comp.trigger(layer, column, now);
+        }
+        self.grid_dirty = true;
     }
 
     /// Snaps every selected note's start to the grid (all notes when nothing is selected).

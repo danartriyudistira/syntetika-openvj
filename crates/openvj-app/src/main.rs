@@ -512,6 +512,7 @@ fn main() -> Result<()> {
     on!(on_midi_roll_expand_toggled, |a| a.piano_expand_toggled());
     on!(on_midi_roll_quantize, |a| a.midi_quantize());
     on!(on_midi_roll_deselect, |a| a.midi_clear_selection());
+    on!(on_midi_roll_transport, |a| a.midi_roll_transport());
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));

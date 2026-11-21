@@ -1535,6 +1535,7 @@ export component MainWindow inherits Window {
     callback midi-roll-expand-toggled();
     callback midi-roll-quantize();
     callback midi-roll-deselect();
+    callback midi-roll-transport();
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -2063,6 +2064,7 @@ export component MainWindow inherits Window {
                      midi-roll-expand-toggled => { root.midi-roll-expand-toggled(); }
                      midi-roll-quantize => { root.midi-roll-quantize(); }
                      midi-roll-deselect => { root.midi-roll-deselect(); }
+                     midi-roll-transport => { root.midi-roll-transport(); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }

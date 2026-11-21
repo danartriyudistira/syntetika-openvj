@@ -262,6 +262,7 @@ component PianoRollEditor inherits Rectangle {
     callback expand-toggled();
     callback quantize();
     callback deselect();
+    callback transport();
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -279,6 +280,11 @@ component PianoRollEditor inherits Rectangle {
     // Beat under a pointer x.
     pure function beat-at(x: length) -> float {
         return max(0.0, x / root.beat-w);
+    }
+
+    // Bar number (1-based) for a beat.
+    pure function bar-at(beat: float) -> int {
+        return floor(beat / 4.0) + 1;
     }
 
     VerticalLayout {
@@ -380,15 +386,38 @@ component PianoRollEditor inherits Rectangle {
                     }
                     Rectangle {
                         x: root.loop-start * root.beat-w;
-                        width: 2px;
+                        width: max(2px, (root.loop-end - root.loop-start) * root.beat-w);
+                        height: 3px;
+                        background: Theme.accent.with-alpha(0.55);
+                    }
+                    TouchArea {
+                        x: root.loop-start * root.beat-w - 2px;
+                        width: 10px;
                         height: parent.height;
-                        background: Theme.accent;
+                        moved => {
+                            if (self.pressed) {
+                                let at = clamp(root.beat-at(self.x + self.mouse-x), 0.0, root.loop-end - 0.25);
+                                root.loop-changed(at, root.loop-end);
+                            }
+                        }
+                    }
+                    TouchArea {
+                        x: root.loop-end * root.beat-w - 8px;
+                        width: 12px;
+                        height: parent.height;
+                        moved => {
+                            if (self.pressed) {
+                                let at = clamp(root.beat-at(self.x + self.mouse-x), root.loop-start + 0.25, root.bars * 4.0);
+                                root.loop-changed(root.loop-start, at);
+                            }
+                        }
                     }
                     Rectangle {
-                        x: root.loop-end * root.beat-w - 2px;
-                        width: 2px;
+                        visible: root.playing;
+                        x: root.playhead * root.beat-w;
+                        width: 1px;
                         height: parent.height;
-                        background: Theme.accent;
+                        background: Theme.playing;
                     }
                 }
             }
@@ -623,13 +652,6 @@ component PianoRollEditor inherits Rectangle {
             border-width: 1px;
             border-color: Theme.separator;
             Text { x: 4px; y: 1px; text: "127"; color: Theme.text-faint; font-size: 8px; }
-            Text {
-                x: parent.width - 32px;
-                y: parent.height - 13px;
-                text: root.grid == 4 ? "1/4" : root.grid == 8 ? "1/8" : root.grid == 16 ? "1/16" : "1/32";
-                color: Theme.text-faint;
-                font-size: 8px;
-            }
             Rectangle {
                 x: -grid-flick.content-x;
                 width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
@@ -670,6 +692,37 @@ component PianoRollEditor inherits Rectangle {
                         root.velocity-set(root.beat-at(self.mouse-x), root.velocity-at(self.mouse-y, self.height));
                     }
                 }
+            }
+        }
+        // Transport and readouts, like the reference footer.
+        HorizontalLayout {
+            height: 20px;
+            spacing: 8px;
+            play-ta := TouchArea {
+                width: 20px;
+                height: 18px;
+                clicked => { root.transport(); }
+                Path {
+                    x: 5px;
+                    y: 3px;
+                    width: 10px;
+                    height: 12px;
+                    commands: "M 0 0 L 10 6 L 0 12 Z";
+                    fill: root.playing ? Theme.accent : Theme.text-dim;
+                }
+            }
+            Text {
+                text: root.bar-at(root.playhead);
+                color: Theme.text-dim;
+                font-size: 10px;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text {
+                text: root.grid == 4 ? "1/4" : root.grid == 8 ? "1/8" : root.grid == 16 ? "1/16" : "1/32";
+                color: Theme.text-dim;
+                font-size: 10px;
+                vertical-alignment: center;
             }
         }
     }
@@ -819,6 +872,7 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-expand-toggled();
     callback midi-roll-quantize();
     callback midi-roll-deselect();
+    callback midi-roll-transport();
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1385,6 +1439,7 @@ export component PropertiesPanel inherits Rectangle {
             expand-toggled => { root.midi-roll-expand-toggled(); }
             quantize => { root.midi-roll-quantize(); }
             deselect => { root.midi-roll-deselect(); }
+            transport => { root.midi-roll-transport(); }
         }
     }
 }
