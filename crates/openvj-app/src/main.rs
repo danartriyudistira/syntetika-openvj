@@ -513,6 +513,8 @@ fn main() -> Result<()> {
     on!(on_midi_roll_quantize, |a| a.midi_quantize());
     on!(on_midi_roll_deselect, |a| a.midi_clear_selection());
     on!(on_midi_roll_transport, |a| a.midi_roll_transport());
+    on!(on_midi_roll_audition, |a, p: i32| a.midi_roll_audition(p));
+    on!(on_midi_roll_note_added_sized, |a, p: i32, s: f32, l: f32| a.midi_roll_note_added_sized(p, s, l));
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));

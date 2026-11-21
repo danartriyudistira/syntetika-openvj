@@ -231,6 +231,7 @@ component PianoRollEditor inherits Rectangle {
     in property <float> zoom-x: 1;
     in property <float> zoom-y: 1;
     in property <bool> expanded;
+    in property <string> readout;
     // One grid row and one beat, after zoom.
     property <length> row-h: 12px * root.zoom-y;
     property <length> beat-w: 32px * root.zoom-x;
@@ -263,6 +264,8 @@ component PianoRollEditor inherits Rectangle {
     callback quantize();
     callback deselect();
     callback transport();
+    callback audition(int);
+    callback add-note-sized(int, float, float);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -537,6 +540,15 @@ component PianoRollEditor inherits Rectangle {
                             vertical-alignment: center;
                             overflow: elide;
                         }
+                        audition-ta := TouchArea {
+                            width: 44px;
+                            height: parent.height;
+                            pointer-event(e) => {
+                                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                                    root.audition(row.pitch);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -558,6 +570,12 @@ component PianoRollEditor inherits Rectangle {
                     border-width: 1px;
                     border-color: Theme.separator;
                 }
+                for b[i] in root.bars * 4: Rectangle {
+                    x: i * root.beat-w;
+                    width: 1px;
+                    height: parent.height;
+                    background: Math.mod(i, 4) == 0 ? #2b3138 : #1a1e22;
+                }
                 grid-bg := TouchArea {
                     property <length> press-x: 0px;
                     property <length> press-y: 0px;
@@ -566,15 +584,26 @@ component PianoRollEditor inherits Rectangle {
                     property <length> rect-w: 0px;
                     property <length> rect-h: 0px;
                     property <bool> marquee: false;
+                    property <bool> drawing: false;
                     property <bool> additive: false;
                     pointer-event(e) => {
                         if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                             press-x = self.mouse-x;
                             press-y = self.mouse-y;
                             marquee = false;
+                            drawing = false;
                             additive = e.modifiers.shift;
                         } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
-                            if (marquee) {
+                            if (root.mode == 0) {
+                                let row = root.row-at(press-y, root.rows.length);
+                                let b1 = root.beat-at(min(press-x, self.mouse-x));
+                                let b2 = root.beat-at(max(press-x, self.mouse-x));
+                                if (drawing) {
+                                    root.add-note-sized(root.rows[row].pitch, b1, b2 - b1);
+                                } else {
+                                    root.add-note(root.rows[row].pitch, root.beat-at(self.mouse-x));
+                                }
+                            } else if (marquee) {
                                 let x1 = min(press-x, self.mouse-x);
                                 let x2 = max(press-x, self.mouse-x);
                                 let y1 = min(press-y, self.mouse-y);
@@ -582,26 +611,34 @@ component PianoRollEditor inherits Rectangle {
                                 let p1 = root.rows[root.row-at(y2, root.rows.length)].pitch;
                                 let p2 = root.rows[root.row-at(y1, root.rows.length)].pitch;
                                 root.marquee-selected(root.beat-at(x1), root.beat-at(x2), min(p1, p2), max(p1, p2), additive);
-                            } else if (root.mode == 0) {
-                                let row = root.row-at(self.mouse-y, root.rows.length);
-                                root.add-note(root.rows[row].pitch, root.beat-at(self.mouse-x));
                             } else if (root.mode == 1) {
                                 root.deselect();
                             }
                             marquee = false;
+                            drawing = false;
                         }
                     }
                     moved => {
                         if (self.pressed) {
                             let x1 = min(press-x, self.mouse-x);
                             let x2 = max(press-x, self.mouse-x);
-                            let y1 = min(press-y, self.mouse-y);
-                            let y2 = max(press-y, self.mouse-y);
-                            if (!marquee && (x2 - x1 > 4px || y2 - y1 > 4px)) { marquee = true; }
-                            rect-x = x1;
-                            rect-y = y1;
-                            rect-w = x2 - x1;
-                            rect-h = y2 - y1;
+                            if (root.mode == 0) {
+                                if (x2 - x1 > 3px) { drawing = true; }
+                                if (drawing) {
+                                    rect-x = x1;
+                                    rect-y = floor(press-y / root.row-h) * root.row-h;
+                                    rect-w = x2 - x1;
+                                    rect-h = root.row-h;
+                                }
+                            } else {
+                                let y1 = min(press-y, self.mouse-y);
+                                let y2 = max(press-y, self.mouse-y);
+                                if (!marquee && (x2 - x1 > 4px || y2 - y1 > 4px)) { marquee = true; }
+                                rect-x = x1;
+                                rect-y = y1;
+                                rect-w = x2 - x1;
+                                rect-h = y2 - y1;
+                            }
                         }
                     }
                 }
@@ -616,6 +653,8 @@ component PianoRollEditor inherits Rectangle {
                     height: max(6px, root.row-h - 2px);
                     border-radius: 2px;
                     background: note.selected ? Theme.selection : Theme.accent;
+                    border-width: note.selected ? 1px : 0px;
+                    border-color: Theme.on-accent;
                     opacity: 0.45 + note.velocity / 255.0;
                     TouchArea {
                         pointer-event(e) => {
@@ -629,6 +668,8 @@ component PianoRollEditor inherits Rectangle {
                                     root.note-selected(note.index, e.modifiers.shift);
                                     root.note-drag-begin(note.index);
                                 }
+                            } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.right) {
+                                root.delete-note(note.index);
                             } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
                                 root.note-drag-end();
                             }
@@ -662,7 +703,7 @@ component PianoRollEditor inherits Rectangle {
                     }
                 }
                 Rectangle {
-                    visible: grid-bg.marquee;
+                    visible: grid-bg.marquee || grid-bg.drawing;
                     x: grid-bg.rect-x;
                     y: grid-bg.rect-y;
                     width: grid-bg.rect-w;
@@ -786,6 +827,12 @@ component PianoRollEditor inherits Rectangle {
                 font-size: 10px;
                 vertical-alignment: center;
             }
+            Text {
+                text: root.readout;
+                color: Theme.text-faint;
+                font-size: 10px;
+                vertical-alignment: center;
+            }
             Rectangle { horizontal-stretch: 1; background: transparent; }
             Text {
                 text: root.grid == 4 ? "1/4" : root.grid == 8 ? "1/8" : root.grid == 16 ? "1/16" : "1/32";
@@ -888,6 +935,7 @@ export component PropertiesPanel inherits Rectangle {
     in property <float> midi-zoom-x;
     in property <float> midi-zoom-y;
     in property <bool> piano-expanded;
+    in property <string> midi-readout;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -944,6 +992,8 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-quantize();
     callback midi-roll-deselect();
     callback midi-roll-transport();
+    callback midi-roll-audition(int);
+    callback midi-roll-note-added-sized(int, float, float);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1483,6 +1533,7 @@ export component PropertiesPanel inherits Rectangle {
             zoom-x: root.midi-zoom-x;
             zoom-y: root.midi-zoom-y;
             expanded: root.piano-expanded;
+            readout: root.midi-readout;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
@@ -1511,6 +1562,8 @@ export component PropertiesPanel inherits Rectangle {
             quantize => { root.midi-roll-quantize(); }
             deselect => { root.midi-roll-deselect(); }
             transport => { root.midi-roll-transport(); }
+            audition(p) => { root.midi-roll-audition(p); }
+            add-note-sized(p, s, l) => { root.midi-roll-note-added-sized(p, s, l); }
         }
     }
 }

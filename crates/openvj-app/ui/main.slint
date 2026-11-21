@@ -1440,6 +1440,7 @@ export component MainWindow inherits Window {
     in property <float> midi-zoom-x;
     in property <float> midi-zoom-y;
     in-out property <bool> piano-expanded;
+    in property <string> midi-readout;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1536,6 +1537,8 @@ export component MainWindow inherits Window {
     callback midi-roll-quantize();
     callback midi-roll-deselect();
     callback midi-roll-transport();
+    callback midi-roll-audition(int);
+    callback midi-roll-note-added-sized(int, float, float);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -2011,6 +2014,7 @@ export component MainWindow inherits Window {
                      midi-zoom-x: root.midi-zoom-x;
                      midi-zoom-y: root.midi-zoom-y;
                      piano-expanded: root.piano-expanded;
+                     midi-readout: root.midi-readout;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -2065,6 +2069,8 @@ export component MainWindow inherits Window {
                      midi-roll-quantize => { root.midi-roll-quantize(); }
                      midi-roll-deselect => { root.midi-roll-deselect(); }
                      midi-roll-transport => { root.midi-roll-transport(); }
+                     midi-roll-audition(p) => { root.midi-roll-audition(p); }
+                     midi-roll-note-added-sized(p, s, l) => { root.midi-roll-note-added-sized(p, s, l); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }

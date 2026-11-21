@@ -112,6 +112,10 @@ fn midi_row_label(pitch: u8, drums: bool) -> String {
             return name.to_string();
         }
     }
+    midi_note_name(pitch)
+}
+
+fn midi_note_name(pitch: u8) -> String {
     let octave = pitch as i32 / 12 - 1;
     format!("{}{}", NOTE_NAMES[(pitch % 12) as usize], octave)
 }
@@ -344,6 +348,7 @@ pub struct App {
     midi_zoom_x: f32,
     midi_zoom_y: f32,
     piano_expanded: bool,
+    midi_readout: String,
     control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
@@ -538,6 +543,7 @@ impl App {
             midi_zoom_x: 1.0,
             midi_zoom_y: 1.0,
             piano_expanded: false,
+            midi_readout: String::new(),
             control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
@@ -1753,6 +1759,7 @@ impl App {
         ui.set_midi_zoom_x(self.midi_zoom_x);
         ui.set_midi_zoom_y(self.midi_zoom_y);
         ui.set_piano_expanded(self.piano_expanded);
+        ui.set_midi_readout(self.midi_readout.clone().into());
         let source_url = match clip.map(|c| &c.source) {
             Some(ClipSource::Isf { generator }) => generator.ty().map(|t| t.def.source.clone()).unwrap_or_default(),
             _ => String::new(),
@@ -2485,6 +2492,7 @@ impl App {
                 note.start_tick = snap_ticks(note.start_tick as i64, step).clamp(0, limit) as u32;
             }
         }
+        self.midi_readout = "quantized".into();
         self.props_dirty = true;
     }
 
@@ -2682,6 +2690,7 @@ impl App {
         if let Some(note) = clip.midi_roll.notes.get_mut(index) {
             if note.velocity != wanted {
                 note.velocity = wanted;
+                self.midi_readout = format!("vel {wanted}");
                 self.props_dirty = true;
             }
         }
@@ -2689,6 +2698,43 @@ impl App {
 
     pub fn midi_roll_note_resize_begin(&mut self, _index: usize) {
         self.midi_snapshot();
+    }
+
+    /// Moves the selected notes by `dx` grid steps and `dy` semitones.
+    pub fn midi_nudge(&mut self, dx: i32, dy: i32) -> bool {
+        if self.midi_selection.is_empty() {
+            return false;
+        }
+        let Some(step) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| midi_step(&clip.midi_roll))
+        else {
+            return false;
+        };
+        self.midi_snapshot();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
+        let delta = step * dx as i64;
+        let targets: Vec<usize> = self.midi_selection.iter().copied().collect();
+        for i in targets {
+            if let Some(note) = clip.midi_roll.notes.get_mut(i) {
+                let limit = (max - note.length_ticks.max(1) as i64).max(0);
+                note.start_tick = (note.start_tick as i64 + delta).clamp(0, limit) as u32;
+                note.pitch = (note.pitch as i32 + dy).clamp(0, 127) as u8;
+            }
+        }
+        if let Some(i) = self.midi_selection.iter().next().copied() {
+            if let Some(note) = clip.midi_roll.notes.get(i) {
+                self.midi_readout = format!(
+                    "{}  ·  {}",
+                    midi_note_name(note.pitch),
+                    note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32
+                );
+            }
+        }
+        self.props_dirty = true;
+        true
     }
 
     pub fn midi_key(&mut self, text: &str, ctrl: bool, shift: bool) -> bool {
@@ -2728,6 +2774,10 @@ impl App {
                     true
                 }
             }
+            "\u{F700}" => self.midi_nudge(0, if shift { 12 } else { 1 }),
+            "\u{F701}" => self.midi_nudge(0, if shift { -12 } else { -1 }),
+            "\u{F702}" => self.midi_nudge(-1, 0),
+            "\u{F703}" => self.midi_nudge(1, 0),
             _ => false,
         }
     }
@@ -2736,7 +2786,26 @@ impl App {
         self.midi_roll_note_added_vel(pitch, start, 100);
     }
 
+    /// Adds a note whose length was drawn by dragging on the grid.
+    pub fn midi_roll_note_added_sized(&mut self, pitch: i32, start: f32, length: f32) {
+        self.midi_add_note(pitch, start, length, 100);
+    }
+
+    pub fn midi_roll_audition(&mut self, pitch: i32) {
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip(l, c)) else { return };
+        let device = clip.midi_roll.output_device.clone();
+        if device.is_empty() {
+            return;
+        }
+        let channel = clip.midi_roll.normalized_channel();
+        self.midi_output.preview(&device, channel, pitch.clamp(0, 127) as u8, 100);
+    }
+
     pub fn midi_roll_note_added_vel(&mut self, pitch: i32, start: f32, velocity: i32) {
+        self.midi_add_note(pitch, start, 0.0, velocity);
+    }
+
+    fn midi_add_note(&mut self, pitch: i32, start: f32, length: f32, velocity: i32) {
         let Some((max_tick, step)) = self
             .selected
             .and_then(|(l, c)| self.comp.clip_mut(l, c))
@@ -2746,14 +2815,28 @@ impl App {
         };
         let raw = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
         let start_tick = snap_ticks(raw, step).max(0) as u32;
-        if start_tick >= max_tick { return; }
+        if start_tick >= max_tick {
+            return;
+        }
+        let room = (max_tick - start_tick) as i64;
+        let length_ticks = if length <= 0.0 {
+            step.max(1).min(room).max(1) as u32
+        } else {
+            let raw_len = (length.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+            snap_ticks(raw_len, step).max(step.max(1)).min(room.max(1)) as u32
+        };
         self.midi_snapshot();
         self.midi_selection.clear();
+        self.midi_readout = format!(
+            "{}  ·  {}",
+            midi_note_name(pitch.clamp(0, 127) as u8),
+            start_tick as f32 / MIDI_TICKS_PER_BEAT as f32
+        );
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             clip.midi_roll.notes.push(openvj_core::MidiNote {
                 pitch: pitch.clamp(0, 127) as u8,
                 start_tick,
-                length_ticks: (MIDI_TICKS_PER_BEAT / 4).max(1),
+                length_ticks,
                 velocity: velocity.clamp(1, 127) as u8,
             });
             clip.midi_roll.enabled = true;
@@ -2879,11 +2962,17 @@ impl App {
                 note.pitch = (*p as i32 + delta_pitch).clamp(0, 127) as u8;
             }
         }
+        if let Some(note) = clip.midi_roll.notes.get(index) {
+            self.midi_readout = format!(
+                "{}  ·  {}",
+                midi_note_name(note.pitch),
+                note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32
+            );
+        }
         self.props_dirty = true;
     }
 
-    pub fn midi_roll_marquee_selected(&mut self, beat_lo: f32, beat_hi: f32, pitch_lo: i32, pitch_hi: i32, additive: bool) {
-        if !additive {
+    pub fn midi_roll_marquee_selected(&mut self, beat_lo: f32, beat_hi: f32, pitch_lo: i32, pitch_hi: i32, additive: bool) {        if !additive {
             self.midi_selection.clear();
         }
         let beat_lo = beat_lo.max(0.0);
@@ -2920,6 +3009,11 @@ impl App {
                 let raw = (length.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
                 let limit = (max - note.start_tick as i64).max(step);
                 note.length_ticks = snap_ticks(raw, step).clamp(step, limit) as u32;
+                self.midi_readout = format!(
+                    "{}  ·  len {}",
+                    midi_note_name(note.pitch),
+                    note.length_ticks as f32 / MIDI_TICKS_PER_BEAT as f32
+                );
                 self.props_dirty = true;
             }
         }

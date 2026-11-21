@@ -125,6 +125,10 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | Kontrol | Fungsi |
 |---|---|
 | Mode `Draw` / `Select` / `Erase` | Klik grid menambah note / drag marquee / klik note menghapus |
+| Drag di grid (mode `Draw`) | Menggambar note dengan panjang mengikuti drag |
+| Klik keyboard di kiri | Audition pitch lewat output MIDI clip |
+| Klik kanan note | Hapus note |
+| Panah kiri/kanan, atas/bawah | Geser note satu grid / satu semitone (`Shift` = oktaf) |
 | Drag di grid kosong | Marquee selection |
 | `Shift` + klik note | Tambah atau lepas note dari selection |
 | Drag note | Geser seluruh note terpilih |
@@ -146,6 +150,8 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 - Bar ruler di atas grid menampilkan nomor bar, batas loop yang bisa digeser, dan posisi playhead.
 - Velocity lane memakai lollipop (garis + knob) dengan label skala `127` dan grid aktif.
 - Semua penempatan note di-snap ke Grid yang dipilih.
+- Satuan bar/beat digambar sebagai garis vertikal; bar lebih terang.
+- Footer menampilkan nada, posisi beat, panjang, atau velocity yang sedang diedit.
 - Minimap di bawah grid menampilkan seluruh roll, posisi playhead, dan area yang sedang terlihat.
 
 Paste dan duplicate memakai posisi playhead clip, dibulatkan ke grid 1/16, dan note yang melewati batas bar dilewati.

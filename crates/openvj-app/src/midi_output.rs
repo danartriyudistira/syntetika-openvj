@@ -73,6 +73,7 @@ pub struct MidiRollSnapshot {
 
 enum OutputCommand {
     Sync { rolls: Vec<MidiRollSnapshot>, beat: f64, bpm: f32 },
+    Preview { device: String, channel: u8, pitch: u8, velocity: u8 },
     AllNotesOff,
     Shutdown,
 }
@@ -109,6 +110,16 @@ impl MidiOutputWorker {
     }
 
     pub fn all_notes_off(&self) { let _ = self.tx.send(OutputCommand::AllNotesOff); }
+
+    /// Auditions a short note on a device, used by the Piano Roll keyboard.
+    pub fn preview(&self, device: &str, channel: u8, pitch: u8, velocity: u8) {
+        let _ = self.tx.send(OutputCommand::Preview {
+            device: device.to_owned(),
+            channel,
+            pitch,
+            velocity,
+        });
+    }
 }
 
 impl Drop for MidiOutputWorker {
@@ -122,6 +133,7 @@ impl Drop for MidiOutputWorker {
 fn run(rx: Receiver<OutputCommand>) {
     let mut outputs: HashMap<String, MidiOutputManager> = HashMap::new();
     let mut states: HashMap<ClipId, RollState> = HashMap::new();
+    let mut previews: Vec<(Instant, String, u8, u8)> = Vec::new();
     let mut anchor_beat = 0.0;
     let mut anchor_at = Instant::now();
     let mut bpm = 120.0f32;
@@ -161,6 +173,13 @@ fn run(rx: Receiver<OutputCommand>) {
                     }
                 }
             }
+            Ok(OutputCommand::Preview { device, channel, pitch, velocity }) => {
+                let output = outputs.entry(device.clone()).or_default();
+                if output.open(&device).is_ok() {
+                    output.note_on(channel.min(15), pitch.min(127), velocity);
+                    previews.push((Instant::now(), device, channel.min(15), pitch.min(127)));
+                }
+            }
             Ok(OutputCommand::AllNotesOff) => {
                 for output in outputs.values_mut() { output.all_notes_off(); }
                 states.clear();
@@ -169,8 +188,20 @@ fn run(rx: Receiver<OutputCommand>) {
             Err(RecvTimeoutError::Timeout) => {}
         }
 
-        let current_beat = beat_now(anchor_beat, anchor_at, bpm);
-        let ids: Vec<_> = states.keys().copied().collect();
+        let now = Instant::now();
+        if !previews.is_empty() {
+            previews.retain(|(at, device, channel, pitch)| {
+                if now.duration_since(*at) >= Duration::from_millis(180) {
+                    if let Some(output) = outputs.get_mut(device) {
+                        output.note_off(*channel, *pitch);
+                    }
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        let current_beat = beat_now(anchor_beat, anchor_at, bpm);        let ids: Vec<_> = states.keys().copied().collect();
         for id in ids {
             process_state(&mut states, &mut outputs, id, current_beat);
         }
