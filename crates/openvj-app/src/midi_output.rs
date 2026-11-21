@@ -137,6 +137,10 @@ fn run(rx: Receiver<OutputCommand>) {
                 for id in stale { stop_state(&mut states, &mut outputs, id); }
                 let current = beat_now(anchor_beat, anchor_at, bpm);
                 for snapshot in rolls {
+                    if !snapshot.roll.enabled || snapshot.roll.notes.is_empty() || snapshot.roll.output_device.is_empty() {
+                        stop_state(&mut states, &mut outputs, snapshot.id);
+                        continue;
+                    }
                     let channel = snapshot.roll.normalized_channel();
                     let replace = states.get(&snapshot.id).is_some_and(|state| {
                         state.started_beat != snapshot.started_beat || state.device != snapshot.roll.output_device || state.channel != channel
