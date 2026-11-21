@@ -269,6 +269,13 @@ component PianoRollEditor inherits Rectangle {
                     border-width: 1px;
                     border-color: Theme.separator;
                 }
+                TouchArea {
+                    clicked => {
+                        let pitch = clamp(127 - floor(self.mouse-y / 10px), 0, 127);
+                        let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
+                        root.add-note(pitch, beat);
+                    }
+                }
                 for note in root.notes: Rectangle {
                     x: note.start * 32px;
                     y: (127 - note.pitch) * 10px;
@@ -278,13 +285,6 @@ component PianoRollEditor inherits Rectangle {
                     background: Theme.accent;
                     opacity: 0.45 + note.velocity / 255.0;
                     TouchArea { clicked => { root.delete-note(note.index); } }
-                }
-                TouchArea {
-                    clicked => {
-                        let pitch = clamp(127 - floor(self.mouse-y / 10px), 0, 127);
-                        let beat = max(0, floor(self.mouse-x / 32px * 32) / 32);
-                        root.add-note(pitch, beat);
-                    }
                 }
             }
         }
