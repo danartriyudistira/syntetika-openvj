@@ -290,16 +290,16 @@ component PianoRollEditor inherits Rectangle {
     HorizontalLayout {
         padding: 8px;
         spacing: 8px;
-        // Controls, 25%.
+        // Controls, 15%.
         Rectangle {
-            horizontal-stretch: 1;
+            horizontal-stretch: 15;
             vertical-stretch: 1;
             background: Theme.panel-2;
             border-width: 1px;
             border-color: Theme.separator;
             border-radius: Theme.radius;
             Flickable {
-                content-height: 420px;
+                content-height: 470px;
                 VerticalLayout {
                     width: parent.width;
                     padding: 8px;
@@ -331,12 +331,10 @@ component PianoRollEditor inherits Rectangle {
                             picked(i) => { root.channel-picked(i); }
                         }
                     }
-                    HorizontalLayout {
-                        height: 22px;
-                        spacing: 4px;
-                        FlatButton { text: "Draw"; active: root.mode == 0; clicked => { root.mode-picked(0); } }
-                        FlatButton { text: "Select"; active: root.mode == 1; clicked => { root.mode-picked(1); } }
-                        FlatButton { text: "Erase"; active: root.mode == 2; clicked => { root.mode-picked(2); } }
+                    BlendPicker {
+                        modes: ["Draw", "Select", "Erase"];
+                        current: root.mode;
+                        picked(i) => { root.mode-picked(i); }
                     }
                     HorizontalLayout {
                         height: 22px;
@@ -363,14 +361,20 @@ component PianoRollEditor inherits Rectangle {
                     HorizontalLayout {
                         height: 22px;
                         spacing: 4px;
+                        Text { text: "Key"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
                         BlendPicker {
                             horizontal-stretch: 1;
                             modes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                             current: root.scale-root;
                             picked(i) => { root.scale-root-picked(i); }
                         }
+                    }
+                    HorizontalLayout {
+                        height: 22px;
+                        spacing: 4px;
+                        Text { text: "Scale"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
                         BlendPicker {
-                            horizontal-stretch: 2;
+                            horizontal-stretch: 1;
                             modes: ["Off", "Major", "Minor", "Dorian", "Mixolydian", "Pent Minor", "Blues"];
                             current: root.scale-kind;
                             picked(i) => { root.scale-kind-picked(i); }
@@ -380,20 +384,27 @@ component PianoRollEditor inherits Rectangle {
                         height: 22px;
                         spacing: 4px;
                         Text { text: "Zoom"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
-                        FlatButton { text: "−"; clicked => { root.zoom-x-changed(max(0.5, root.zoom-x / 1.25)); } }
-                        FlatButton { text: "+"; clicked => { root.zoom-x-changed(min(4.0, root.zoom-x * 1.25)); } }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: "Rows"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
-                        FlatButton { text: "−"; clicked => { root.zoom-y-changed(max(0.6, root.zoom-y / 1.2)); } }
-                        FlatButton { text: "+"; clicked => { root.zoom-y-changed(min(3.0, root.zoom-y * 1.2)); } }
+                        BlendPicker {
+                            horizontal-stretch: 1;
+                            modes: ["50%", "75%", "100%", "125%", "150%", "200%", "300%", "400%"];
+                            current: root.zoom-x <= 0.6 ? 0 : root.zoom-x <= 0.85 ? 1 : root.zoom-x <= 1.05 ? 2 : root.zoom-x <= 1.35 ? 3 : root.zoom-x <= 1.75 ? 4 : root.zoom-x <= 2.5 ? 5 : root.zoom-x <= 3.5 ? 6 : 7;
+                            picked(i) => { root.zoom-x-changed(i == 0 ? 0.5 : i == 1 ? 0.75 : i == 2 ? 1.0 : i == 3 ? 1.25 : i == 4 ? 1.5 : i == 5 ? 2.0 : i == 6 ? 3.0 : 4.0); }
+                        }
                     }
                     HorizontalLayout {
                         height: 22px;
                         spacing: 4px;
-                        FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
-                        FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
+                        Text { text: "Rows"; width: 28px; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        BlendPicker {
+                            horizontal-stretch: 1;
+                            modes: ["60%", "80%", "100%", "125%", "150%", "200%", "300%"];
+                            current: root.zoom-y <= 0.7 ? 0 : root.zoom-y <= 0.9 ? 1 : root.zoom-y <= 1.1 ? 2 : root.zoom-y <= 1.35 ? 3 : root.zoom-y <= 1.75 ? 4 : root.zoom-y <= 2.5 ? 5 : 6;
+                            picked(i) => { root.zoom-y-changed(i == 0 ? 0.6 : i == 1 ? 0.8 : i == 2 ? 1.0 : i == 3 ? 1.25 : i == 4 ? 1.5 : i == 5 ? 2.0 : 3.0); }
+                        }
                     }
-                    FlatButton { text: "Clear notes"; clicked => { root.clear(); } }
+                    FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
+                    FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
+                    FlatButton { text: "Clear"; clicked => { root.clear(); } }
                     Text {
                         text: root.mode == 0 ? "Draw: click adds, drag selects" : root.mode == 1 ? "Select: drag marquee" : "Erase: click a note";
                         color: Theme.text-faint;
@@ -403,9 +414,9 @@ component PianoRollEditor inherits Rectangle {
                 }
             }
         }
-        // Piano roll, 75%.
+        // Piano roll, 85%.
         Rectangle {
-            horizontal-stretch: 3;
+            horizontal-stretch: 85;
             vertical-stretch: 1;
             VerticalLayout {
                 spacing: 4px;
