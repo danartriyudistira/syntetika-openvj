@@ -10,6 +10,7 @@ mod mapping;
 mod media_browser;
 mod midi;
 mod midi_output;
+mod mcp_bridge;
 mod milk_pack;
 mod player;
 mod prefs;
@@ -165,6 +166,9 @@ fn main() -> Result<()> {
     let comp = Composition::demo();
     let engine = Engine::new(device, queue, comp.width, comp.height);
     let app = Rc::new(RefCell::new(App::new(engine, comp)));
+    let control_queue = mcp_bridge::new_queue();
+    mcp_bridge::start(control_queue.clone());
+    app.borrow_mut().attach_control_queue(control_queue);
 
     #[cfg(target_os = "macos")]
     let ui = titlebar::hidden(MainWindow::new)?;

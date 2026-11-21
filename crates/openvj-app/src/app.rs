@@ -30,6 +30,7 @@ use crate::browser::{self, Entry};
 use crate::link::Link;
 use crate::midi::{self, MidiPorts};
 use crate::midi_output::{MidiOutputManager, MidiOutputWorker, MidiRollSnapshot};
+use crate::mcp_bridge::ControlQueue;
 use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
@@ -232,6 +233,7 @@ pub struct App {
     midi_notes: Rc<VecModel<MidiNoteData>>,
     midi_devices: Vec<String>,
     midi_device_index: usize,
+    control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
     midi_scan_at: f64,
@@ -413,6 +415,7 @@ impl App {
             midi_notes: Rc::new(VecModel::default()),
             midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
             midi_device_index: 0,
+            control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
             midi_status: "Off".into(),
@@ -1021,6 +1024,7 @@ impl App {
 
     pub fn frame(&mut self, ui: &MainWindow, out: &OutputWindow) {
         let now = self.now();
+        self.poll_control();
         let dt = (now - self.last_frame).clamp(0.0, 0.25) as f32;
         self.last_frame = now;
         if dt > 0.045 {
@@ -2000,6 +2004,63 @@ impl App {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             clip.sync_beats = synced.then_some(clip.sync_beats.unwrap_or(4.0));
             self.props_dirty = true;
+        }
+    }
+
+    pub fn attach_control_queue(&mut self, queue: ControlQueue) {
+        self.control_queue = Some(queue);
+    }
+
+    fn poll_control(&mut self) {
+        let Some(queue) = self.control_queue.clone() else { return };
+        let requests = queue.lock().ok().map(|mut pending| pending.drain(..).collect::<Vec<_>>()).unwrap_or_default();
+        for request in requests {
+            let response = match request.action.as_str() {
+                "status" => serde_json::json!({
+                    "ok": true,
+                    "composition": self.comp.name,
+                    "layers": self.comp.layers.len(),
+                    "selected_clip": self.selected,
+                    "bpm": self.comp.bpm,
+                    "midi_devices": self.midi_devices,
+                }),
+                "performance" => serde_json::json!({
+                    "ok": true,
+                    "render_ms": self.render_ms,
+                    "render_passes": self.render_passes,
+                    "frame_time_ms": self.frame_time * 1000.0,
+                }),
+                "trigger_clip" => {
+                    let layer = request.args.get("layer").and_then(|v| v.as_u64()).unwrap_or(0).saturating_sub(1) as usize;
+                    let column = request.args.get("column").and_then(|v| v.as_u64()).unwrap_or(0).saturating_sub(1) as usize;
+                    let now = self.now();
+                    self.comp.trigger(layer, column, now);
+                    self.grid_dirty = true;
+                    serde_json::json!({"ok": true, "layer": layer + 1, "column": column + 1})
+                }
+                "select_clip" => {
+                    let layer = request.args.get("layer").and_then(|v| v.as_u64()).unwrap_or(0).saturating_sub(1) as usize;
+                    let column = request.args.get("column").and_then(|v| v.as_u64()).unwrap_or(0).saturating_sub(1) as usize;
+                    self.cell_right_clicked(layer, column);
+                    serde_json::json!({"ok": true, "layer": layer + 1, "column": column + 1})
+                }
+                "add_midi_note" => {
+                    let pitch = request.args.get("pitch").and_then(|v| v.as_i64()).unwrap_or(60) as i32;
+                    let start = request.args.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                    self.midi_roll_note_added(pitch, start);
+                    serde_json::json!({"ok": true, "pitch": pitch, "start": start})
+                }
+                "clear_midi_roll" => {
+                    self.midi_roll_cleared();
+                    serde_json::json!({"ok": true})
+                }
+                "panic_midi" => {
+                    self.midi_output.all_notes_off();
+                    serde_json::json!({"ok": true})
+                }
+                _ => serde_json::json!({"ok": false, "error": "unknown control action"}),
+            };
+            let _ = request.reply.send(response);
         }
     }
 

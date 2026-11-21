@@ -9,6 +9,10 @@ license.workspace = true
 name = "syntetika-openvj"
 path = "src/main.rs"
 
+[[bin]]
+name = "syntetika-mcp"
+path = "src/mcp_server.rs"
+
 [features]
 default = ["link", "camera", "syphon"]
 # Ableton Link tempo sync. Builds the Link C++ SDK, which needs CMake and a C++ compiler.
