@@ -217,12 +217,19 @@ component PianoRollEditor inherits Rectangle {
     in property <int> channel;
     in property <bool> enabled;
     in property <int> bars;
+    in property <int> grid;
+    in property <float> loop-start;
+    in property <float> loop-end;
     callback enabled-toggled();
     callback device-picked(int);
     callback channel-picked(int);
     callback add-note(int, float);
     callback delete-note(int);
     callback clear();
+    callback grid-picked(int);
+    callback bars-changed(int);
+    callback loop-changed(float, float);
+    callback note-moved(int, float, int);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -248,6 +255,19 @@ component PianoRollEditor inherits Rectangle {
                 picked(i) => { root.channel-picked(i); }
             }
             FlatButton { text: "Clear"; clicked => { root.clear(); } }
+            Text { text: "Grid"; color: Theme.text-dim; vertical-alignment: center; }
+            BlendPicker { modes: ["1/4", "1/8", "1/16", "1/32"]; current: root.grid == 4 ? 0 : root.grid == 8 ? 1 : root.grid == 16 ? 2 : 3; picked(i) => { root.grid-picked(i == 0 ? 4 : i == 1 ? 8 : i == 2 ? 16 : 32); } }
+            Text { text: "Bars"; color: Theme.text-dim; vertical-alignment: center; }
+            FlatButton { text: "−"; clicked => { root.bars-changed(root.bars - 1); } }
+            Text { text: root.bars; color: Theme.text; vertical-alignment: center; }
+            FlatButton { text: "+"; clicked => { root.bars-changed(root.bars + 1); } }
+        }
+        HorizontalLayout {
+            height: 22px;
+            spacing: 6px;
+            Text { text: "Loop"; color: Theme.text-dim; vertical-alignment: center; }
+            Text { text: root.loop-start + " – " + root.loop-end; color: Theme.text; vertical-alignment: center; }
+            FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
         }
         Text {
             text: "Click the grid to add a MIDI note. Click a note to remove it. 32 ticks per beat.";
@@ -284,7 +304,14 @@ component PianoRollEditor inherits Rectangle {
                     border-radius: 2px;
                     background: Theme.accent;
                     opacity: 0.45 + note.velocity / 255.0;
-                    TouchArea { clicked => { root.delete-note(note.index); } }
+                    TouchArea {
+                        clicked => { root.delete-note(note.index); }
+                        moved => {
+                            let start = max(0, floor((note.start * 32px + self.mouse-x - self.pressed-x) / 32px * 32) / 32);
+                            let pitch = clamp(note.pitch - floor((self.mouse-y - self.pressed-y) / 10px), 0, 127);
+                            root.note-moved(note.index, start, pitch);
+                        }
+                    }
                 }
             }
         }
@@ -367,6 +394,9 @@ export component PropertiesPanel inherits Rectangle {
     in property <int> midi-channel;
     in property <bool> midi-roll-enabled;
     in property <int> midi-roll-bars;
+    in property <int> midi-roll-grid;
+    in property <float> midi-loop-start;
+    in property <float> midi-loop-end;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -401,6 +431,10 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-note-added(int, float);
     callback midi-roll-note-deleted(int);
     callback midi-roll-cleared();
+    callback midi-roll-grid-picked(int);
+    callback midi-roll-bars-changed(int);
+    callback midi-roll-loop-changed(float, float);
+    callback midi-roll-note-moved(int, float, int);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -927,12 +961,19 @@ export component PropertiesPanel inherits Rectangle {
             channel: root.midi-channel;
             enabled: root.midi-roll-enabled;
             bars: root.midi-roll-bars;
+            grid: root.midi-roll-grid;
+            loop-start: root.midi-loop-start;
+            loop-end: root.midi-loop-end;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
             add-note(p, s) => { root.midi-roll-note-added(p, s); }
             delete-note(i) => { root.midi-roll-note-deleted(i); }
             clear => { root.midi-roll-cleared(); }
+            grid-picked(i) => { root.midi-roll-grid-picked(i); }
+            bars-changed(i) => { root.midi-roll-bars-changed(i); }
+            loop-changed(s, e) => { root.midi-roll-loop-changed(s, e); }
+            note-moved(i, s, p) => { root.midi-roll-note-moved(i, s, p); }
         }
     }
 }

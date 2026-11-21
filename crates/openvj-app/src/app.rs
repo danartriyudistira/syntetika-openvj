@@ -1749,6 +1749,9 @@ impl App {
             ui.set_midi_roll_enabled(clip.midi_roll.enabled);
             ui.set_midi_channel(clip.midi_roll.normalized_channel() as i32);
             ui.set_midi_roll_bars(clip.midi_roll.bars.max(1) as i32);
+            ui.set_midi_roll_grid(clip.midi_roll.grid.clamp(4, 32) as i32);
+            ui.set_midi_loop_start(clip.midi_roll.loop_start as f32 / MIDI_TICKS_PER_BEAT as f32);
+            ui.set_midi_loop_end(clip.midi_roll.loop_end_for_bars() as f32 / MIDI_TICKS_PER_BEAT as f32);
             self.midi_notes.set_vec(
                 clip.midi_roll.notes.iter().enumerate().map(|(index, note)| MidiNoteData {
                     index: index as i32,
@@ -1763,6 +1766,9 @@ impl App {
             ui.set_midi_roll_enabled(false);
             ui.set_midi_channel(0);
             ui.set_midi_roll_bars(1);
+            ui.set_midi_roll_grid(16);
+            ui.set_midi_loop_start(0.0);
+            ui.set_midi_loop_end(4.0);
             self.midi_notes.set_vec(Vec::new());
         }
 
@@ -2141,6 +2147,46 @@ impl App {
             clip.midi_roll.enabled = false;
             self.midi_output.all_notes_off();
             self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_grid_picked(&mut self, grid: usize) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            clip.midi_roll.grid = [4, 8, 16, 32].into_iter().find(|v| *v == grid as u32).unwrap_or(16);
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_bars_changed(&mut self, bars: i32) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            let bars = bars.clamp(1, 16) as u32;
+            clip.midi_roll.bars = bars;
+            let max = bars * 4 * MIDI_TICKS_PER_BEAT;
+            clip.midi_roll.loop_end = clip.midi_roll.loop_end.min(max).max(1);
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_loop_changed(&mut self, start: f32, end: f32) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            let max = clip.midi_roll.bars.max(1) as f32 * 4.0;
+            let start = start.clamp(0.0, (max - 1.0 / MIDI_TICKS_PER_BEAT as f32).max(0.0));
+            let end = end.clamp(start + 1.0 / MIDI_TICKS_PER_BEAT as f32, max);
+            clip.midi_roll.loop_start = (start * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+            clip.midi_roll.loop_end = (end * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+            self.props_dirty = true;
+        }
+    }
+
+    pub fn midi_roll_note_moved(&mut self, index: usize, start: f32, pitch: i32) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            let max = clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT;
+            if let Some(note) = clip.midi_roll.notes.get_mut(index) {
+                let tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+                note.start_tick = tick.min(max.saturating_sub(note.length_ticks.max(1)));
+                note.pitch = pitch.clamp(0, 127) as u8;
+                self.props_dirty = true;
+            }
         }
     }
 

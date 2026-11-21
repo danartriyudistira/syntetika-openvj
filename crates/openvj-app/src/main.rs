@@ -487,6 +487,10 @@ fn main() -> Result<()> {
     on!(on_midi_roll_note_added, |a, p: i32, s: f32| a.midi_roll_note_added(p, s));
     on!(on_midi_roll_note_deleted, |a, i: i32| a.midi_roll_note_deleted(i.max(0) as usize));
     on!(on_midi_roll_cleared, |a| a.midi_roll_cleared());
+    on!(on_midi_roll_grid_picked, |a, i: i32| a.midi_roll_grid_picked(i.max(0) as usize));
+    on!(on_midi_roll_bars_changed, |a, i: i32| a.midi_roll_bars_changed(i));
+    on!(on_midi_roll_loop_changed, |a, s: f32, e: f32| a.midi_roll_loop_changed(s, e));
+    on!(on_midi_roll_note_moved, |a, i: i32, s: f32, p: i32| a.midi_roll_note_moved(i.max(0) as usize, s, p));
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));

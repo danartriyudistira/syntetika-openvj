@@ -1427,6 +1427,9 @@ export component MainWindow inherits Window {
     in property <int> midi-channel;
     in property <bool> midi-roll-enabled;
     in property <int> midi-roll-bars;
+    in property <int> midi-roll-grid;
+    in property <float> midi-loop-start;
+    in property <float> midi-loop-end;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1501,6 +1504,10 @@ export component MainWindow inherits Window {
     callback midi-roll-note-added(int, float);
     callback midi-roll-note-deleted(int);
     callback midi-roll-cleared();
+    callback midi-roll-grid-picked(int);
+    callback midi-roll-bars-changed(int);
+    callback midi-roll-loop-changed(float, float);
+    callback midi-roll-note-moved(int, float, int);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1957,6 +1964,9 @@ export component MainWindow inherits Window {
                      midi-channel: root.midi-channel;
                      midi-roll-enabled: root.midi-roll-enabled;
                      midi-roll-bars: root.midi-roll-bars;
+                     midi-roll-grid: root.midi-roll-grid;
+                     midi-loop-start: root.midi-loop-start;
+                     midi-loop-end: root.midi-loop-end;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -1989,6 +1999,10 @@ export component MainWindow inherits Window {
                      midi-roll-note-added(p, s) => { root.midi-roll-note-added(p, s); }
                      midi-roll-note-deleted(i) => { root.midi-roll-note-deleted(i); }
                      midi-roll-cleared => { root.midi-roll-cleared(); }
+                     midi-roll-grid-picked(i) => { root.midi-roll-grid-picked(i); }
+                     midi-roll-bars-changed(i) => { root.midi-roll-bars-changed(i); }
+                     midi-roll-loop-changed(s, e) => { root.midi-roll-loop-changed(s, e); }
+                     midi-roll-note-moved(i, s, p) => { root.midi-roll-note-moved(i, s, p); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }
