@@ -1445,6 +1445,7 @@ export component MainWindow inherits Window {
     in property <int> midi-fit-row-lo;
     in property <int> midi-fit-row-hi;
     in property <float> midi-fit-beat-end;
+    in property <int> midi-fit-key;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -2024,6 +2025,7 @@ export component MainWindow inherits Window {
                      midi-fit-row-lo: root.midi-fit-row-lo;
                      midi-fit-row-hi: root.midi-fit-row-hi;
                      midi-fit-beat-end: root.midi-fit-beat-end;
+                     midi-fit-key: root.midi-fit-key;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }

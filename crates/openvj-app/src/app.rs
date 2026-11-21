@@ -374,6 +374,7 @@ pub struct App {
     midi_zoom_y: f32,
     piano_expanded: bool,
     midi_readout: String,
+    midi_fit_key: i32,
     control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
@@ -569,6 +570,7 @@ impl App {
             midi_zoom_y: 1.0,
             piano_expanded: false,
             midi_readout: String::new(),
+            midi_fit_key: 0,
             control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
@@ -1876,6 +1878,7 @@ impl App {
             ui.set_midi_fit_row_lo(fit_lo);
             ui.set_midi_fit_row_hi(fit_hi);
             ui.set_midi_fit_beat_end(beat_end);
+            ui.set_midi_fit_key(self.midi_fit_key);
             self.midi_notes.set_vec(notes);
             self.midi_rows.set_vec(rows);
             ui.set_midi_fold(clip.midi_roll.fold);
@@ -1895,6 +1898,7 @@ impl App {
             ui.set_midi_fit_row_lo(0);
             ui.set_midi_fit_row_hi(0);
             ui.set_midi_fit_beat_end(0.0);
+            ui.set_midi_fit_key(self.midi_fit_key);
             self.midi_selection.clear();
         }
 
@@ -2546,6 +2550,7 @@ impl App {
             self.midi_redo.clear();
             self.midi_selection.clear();
             self.midi_drag = None;
+            self.midi_fit_key = self.midi_fit_key.wrapping_add(1);
         }
     }
 

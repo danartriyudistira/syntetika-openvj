@@ -236,6 +236,7 @@ component PianoRollEditor inherits Rectangle {
     in property <int> fit-row-lo;
     in property <int> fit-row-hi;
     in property <float> fit-beat-end;
+    in property <int> fit-key;
     // One grid row and one beat, after zoom.
     property <length> row-h: 12px * root.zoom-y;
     property <length> beat-w: 32px * root.zoom-x;
@@ -293,6 +294,31 @@ component PianoRollEditor inherits Rectangle {
     // Bar number (1-based) for a beat.
     pure function bar-at(beat: float) -> int {
         return floor(beat / 4.0) + 1;
+    }
+
+    // Sizes and scrolls the grid so every note is in view.
+    function fit-view() {
+        if (grid-flick.width > 2px && grid-flick.height > 2px) {
+            let zx = clamp(grid-flick.width / max(32px, root.fit-beat-end * 32px), 0.5, 4.0);
+            let span = max(1, root.fit-row-hi - root.fit-row-lo + 1);
+            let zy = clamp(grid-flick.height / (span * 12px), 0.6, 3.0);
+            root.zoom-x-changed(zx);
+            root.zoom-y-changed(zy);
+            grid-flick.content-x = 0px;
+            grid-flick.content-y = -max(0px, root.fit-row-lo * 12px * zy - 6px);
+        }
+    }
+
+    changed fit-key => { root.fit-pending = true; }
+
+    property <bool> fit-pending: true;
+    fit-timer := Timer {
+        interval: 100ms;
+        running: root.fit-pending;
+        triggered => {
+            root.fit-view();
+            root.fit-pending = false;
+        }
     }
 
     HorizontalLayout {
@@ -413,21 +439,10 @@ component PianoRollEditor inherits Rectangle {
                     FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
                     FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
                     FlatButton { text: "Clear"; clicked => { root.clear(); } }
-                    FlatButton {
-                        text: "Fit";
-                        clicked => {
-                            let zx = clamp(grid-flick.width / max(32px, root.fit-beat-end * 32px), 0.5, 4.0);
-                            let span = max(1, root.fit-row-hi - root.fit-row-lo + 1);
-                            let zy = clamp(grid-flick.height / (span * 12px), 0.6, 3.0);
-                            root.zoom-x-changed(zx);
-                            root.zoom-y-changed(zy);
-                            grid-flick.content-x = 0px;
-                            grid-flick.content-y = max(0px, root.fit-row-lo * 12px * zy - 6px);
-                        }
-                    }
+                    FlatButton { text: "Fit"; clicked => { root.fit-view(); } }
                     FlatButton {
                         text: "Locate";
-                        clicked => { grid-flick.content-y = max(0px, root.locate-row * root.row-h - grid-flick.height * 0.45); }
+                        clicked => { grid-flick.content-y = -max(0px, root.locate-row * root.row-h - grid-flick.height * 0.45); }
                     }
                     Text {
                         text: root.mode == 0 ? "Draw: click adds, drag selects" : root.mode == 1 ? "Select: drag marquee" : "Erase: click a note";
@@ -461,7 +476,7 @@ component PianoRollEditor inherits Rectangle {
                 border-width: 1px;
                 border-color: Theme.separator;
                 Rectangle {
-                    x: -grid-flick.content-x;
+                    x: grid-flick.content-x;
                     width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
                     height: parent.height;
                     for b[i] in root.bars: Rectangle {
@@ -526,7 +541,7 @@ component PianoRollEditor inherits Rectangle {
                 border-width: 1px;
                 border-color: Theme.separator;
                 Rectangle {
-                    y: -grid-flick.content-y;
+                    y: grid-flick.content-y;
                     width: parent.width;
                     height: max(40px, root.rows.length * root.row-h);
                     for row[i] in root.rows: Rectangle {
@@ -578,8 +593,7 @@ component PianoRollEditor inherits Rectangle {
             horizontal-stretch: 1;
             content-height: max(40px, root.rows.length * root.row-h);
             Rectangle {
-                width: max(parent.width, root.bars * 4 * root.beat-w + 80px);
-                height: max(40px, root.rows.length * root.row-h);
+                width: max(parent.width, root.bars * 4 * root.beat-w + 80px);                height: max(40px, root.rows.length * root.row-h);
                 background: Theme.bg;
                 for row[i] in root.rows: Rectangle {
                     y: i * root.row-h;
@@ -766,7 +780,7 @@ component PianoRollEditor inherits Rectangle {
             }
             // The part of the roll currently visible in the grid.
             Rectangle {
-                x: (grid-flick.content-x / max(1px, root.bars * 4 * root.beat-w + 80px)) * parent.width;
+                x: (-grid-flick.content-x / max(1px, root.bars * 4 * root.beat-w + 80px)) * parent.width;
                 width: max(2px, (grid-flick.width / max(1px, root.bars * 4 * root.beat-w + 80px)) * parent.width);
                 height: parent.height;
                 background: #ffffff0a;
@@ -962,6 +976,7 @@ export component PropertiesPanel inherits Rectangle {
     in property <int> midi-fit-row-lo;
     in property <int> midi-fit-row-hi;
     in property <float> midi-fit-beat-end;
+    in property <int> midi-fit-key;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -1565,6 +1580,7 @@ export component PropertiesPanel inherits Rectangle {
             fit-row-lo: root.midi-fit-row-lo;
             fit-row-hi: root.midi-fit-row-hi;
             fit-beat-end: root.midi-fit-beat-end;
+            fit-key: root.midi-fit-key;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
