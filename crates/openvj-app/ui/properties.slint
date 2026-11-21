@@ -231,6 +231,7 @@ component PianoRollEditor inherits Rectangle {
     callback loop-changed(float, float);
     callback note-moved(int, float, int);
     callback note-resized(int, float);
+    callback note-selected(int, bool);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
@@ -307,7 +308,7 @@ component PianoRollEditor inherits Rectangle {
                     width: max(6px, note.length * 32px);
                     height: 8px;
                     border-radius: 2px;
-                    background: Theme.accent;
+                    background: note.selected ? Theme.selection : Theme.accent;
                     opacity: 0.45 + note.velocity / 255.0;
                     TouchArea {
                         pointer-event(e) => {
@@ -315,6 +316,7 @@ component PianoRollEditor inherits Rectangle {
                                 parent.drag-start = note.start;
                                 parent.drag-pitch = note.pitch;
                                 parent.dragged = false;
+                                root.note-selected(note.index, e.modifiers.shift);
                             }
                         }
                         moved => {
@@ -467,6 +469,7 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-loop-changed(float, float);
     callback midi-roll-note-moved(int, float, int);
     callback midi-roll-note-resized(int, float);
+    callback midi-roll-note-selected(int, bool);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1007,6 +1010,7 @@ export component PropertiesPanel inherits Rectangle {
             loop-changed(s, e) => { root.midi-roll-loop-changed(s, e); }
             note-moved(i, s, p) => { root.midi-roll-note-moved(i, s, p); }
             note-resized(i, l) => { root.midi-roll-note-resized(i, l); }
+            note-selected(i, a) => { root.midi-roll-note-selected(i, a); }
         }
     }
 }

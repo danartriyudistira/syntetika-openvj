@@ -233,6 +233,7 @@ pub struct App {
     midi_notes: Rc<VecModel<MidiNoteData>>,
     midi_devices: Vec<String>,
     midi_device_index: usize,
+    midi_selection: HashSet<usize>,
     control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
@@ -415,6 +416,7 @@ impl App {
             midi_notes: Rc::new(VecModel::default()),
             midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
             midi_device_index: 0,
+            midi_selection: HashSet::new(),
             control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
@@ -1669,6 +1671,7 @@ impl App {
             self.midi_notes.set_vec(
                 clip.midi_roll.notes.iter().enumerate().map(|(index, note)| MidiNoteData {
                     index: index as i32,
+                    selected: self.midi_selection.contains(&index),
                     pitch: note.pitch as i32,
                     start: note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32,
                     length: note.length_ticks as f32 / MIDI_TICKS_PER_BEAT as f32,
@@ -1684,6 +1687,7 @@ impl App {
             ui.set_midi_loop_start(0.0);
             ui.set_midi_loop_end(4.0);
             self.midi_notes.set_vec(Vec::new());
+            self.midi_selection.clear();
         }
 
         let layer = self.comp.layers.get(self.selected_layer);
@@ -2105,11 +2109,27 @@ impl App {
 
     pub fn midi_roll_note_deleted(&mut self, index: usize) {
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
-            if index < clip.midi_roll.notes.len() {
-                clip.midi_roll.notes.remove(index);
+            let mut remove = self.midi_selection.clone();
+            if remove.is_empty() { remove.insert(index); }
+            clip.midi_roll.notes = clip.midi_roll.notes.iter().enumerate()
+                .filter(|(i, _)| !remove.contains(i))
+                .map(|(_, note)| note.clone())
+                .collect();
+            self.midi_selection.clear();
+            if index < clip.midi_roll.notes.len() || !remove.is_empty() {
                 self.props_dirty = true;
             }
         }
+    }
+
+    pub fn midi_roll_note_selected(&mut self, index: usize, additive: bool) {
+        if !additive { self.midi_selection.clear(); }
+        if additive && self.midi_selection.contains(&index) {
+            self.midi_selection.remove(&index);
+        } else {
+            self.midi_selection.insert(index);
+        }
+        self.props_dirty = true;
     }
 
     pub fn midi_roll_cleared(&mut self) {
@@ -2156,6 +2176,16 @@ impl App {
                 let tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
                 note.start_tick = tick.min(max.saturating_sub(note.length_ticks.max(1)));
                 note.pitch = pitch.clamp(0, 127) as u8;
+                self.props_dirty = true;
+            }
+        }
+    }
+
+    pub fn midi_roll_note_resized(&mut self, index: usize, length: f32) {
+        if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            if let Some(note) = clip.midi_roll.notes.get_mut(index) {
+                note.length_ticks = (length.max(1.0 / MIDI_TICKS_PER_BEAT as f32)
+                    * MIDI_TICKS_PER_BEAT as f32).round() as u32;
                 self.props_dirty = true;
             }
         }
