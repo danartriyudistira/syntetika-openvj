@@ -1441,6 +1441,7 @@ export component MainWindow inherits Window {
     in property <float> midi-zoom-y;
     in-out property <bool> piano-expanded;
     in property <string> midi-readout;
+    in property <int> midi-locate-row;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -2015,6 +2016,7 @@ export component MainWindow inherits Window {
                      midi-zoom-y: root.midi-zoom-y;
                      piano-expanded: root.piano-expanded;
                      midi-readout: root.midi-readout;
+                     midi-locate-row: root.midi-locate-row;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }

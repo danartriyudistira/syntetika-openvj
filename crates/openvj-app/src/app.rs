@@ -57,8 +57,7 @@ const MIDI_SCALES: [&[u8]; 7] = [
     &[0, 3, 5, 6, 7, 10],    // Blues
 ];
 
-fn snap_ticks(tick: i64, step: i64) -> i64 {
-    if step <= 1 {
+fn snap_ticks(tick: i64, step: i64) -> i64 {    if step <= 1 {
         return tick;
     }
     ((tick + step / 2) / step) * step
@@ -71,6 +70,22 @@ fn midi_step(roll: &openvj_core::MidiRoll) -> i64 {
 
 fn midi_pitch_black(pitch: u8) -> bool {
     matches!(pitch % 12, 1 | 3 | 6 | 8 | 10)
+}
+
+/// Next pitch in `direction` that belongs to the scale, or the same pitch.
+fn next_scale_pitch(pitch: u8, direction: i32, intervals: &[u8], root: u8) -> u8 {
+    let mut p = pitch as i32;
+    for _ in 0..12 {
+        p += direction;
+        if !(0..=127).contains(&p) {
+            return pitch;
+        }
+        let class = ((p as u8 + 12 - root) % 12) as u8;
+        if intervals.contains(&class) {
+            return p as u8;
+        }
+    }
+    pitch
 }
 
 const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -118,6 +133,16 @@ fn midi_row_label(pitch: u8, drums: bool) -> String {
 fn midi_note_name(pitch: u8) -> String {
     let octave = pitch as i32 / 12 - 1;
     format!("{}{}", NOTE_NAMES[(pitch % 12) as usize], octave)
+}
+
+fn midi_readout_text(clip: &openvj_core::Clip, selection: &std::collections::HashSet<usize>) -> Option<String> {
+    let index = selection.iter().next().copied()?;
+    let note = clip.midi_roll.notes.get(index)?;
+    Some(format!(
+        "{}  ·  {}",
+        midi_note_name(note.pitch),
+        note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32
+    ))
 }
 
 /// Rows the Piano Roll draws, top to bottom. A folded roll lists only used pitches.
@@ -1837,6 +1862,14 @@ impl App {
                     velocity: note.velocity as i32,
                 })
                 .collect::<Vec<MidiNoteData>>();
+            let mut row_ids: Vec<i32> = notes.iter().map(|n| n.row).collect();
+            let locate_row = if row_ids.is_empty() {
+                rows.iter().position(|r| r.pitch <= 60).unwrap_or(0) as i32
+            } else {
+                row_ids.sort_unstable();
+                row_ids[row_ids.len() / 2]
+            };
+            ui.set_midi_locate_row(locate_row);
             self.midi_notes.set_vec(notes);
             self.midi_rows.set_vec(rows);
             ui.set_midi_fold(clip.midi_roll.fold);
@@ -1852,6 +1885,7 @@ impl App {
             ui.set_midi_loop_end(4.0);
             self.midi_notes.set_vec(Vec::new());
             self.midi_rows.set_vec(midi_rows(&openvj_core::MidiRoll::default()));
+            ui.set_midi_locate_row(0);
             self.midi_selection.clear();
         }
 
@@ -2724,16 +2758,56 @@ impl App {
                 note.pitch = (note.pitch as i32 + dy).clamp(0, 127) as u8;
             }
         }
-        if let Some(i) = self.midi_selection.iter().next().copied() {
-            if let Some(note) = clip.midi_roll.notes.get(i) {
-                self.midi_readout = format!(
-                    "{}  ·  {}",
-                    midi_note_name(note.pitch),
-                    note.start_tick as f32 / MIDI_TICKS_PER_BEAT as f32
-                );
-            }
+        if let Some(text) = midi_readout_text(clip, &self.midi_selection) {
+            self.midi_readout = text;
         }
         self.props_dirty = true;
+        true
+    }
+
+    /// Moves the selection up or down by semitones, or by the next scale step
+    /// when `semitones` is 0.
+    pub fn midi_pitch_move(&mut self, direction: i32, semitones: i32) -> bool {
+        if self.midi_selection.is_empty() || direction == 0 {
+            return false;
+        }
+        let Some((kind, root)) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| (clip.midi_roll.scale_kind as usize, clip.midi_roll.scale_root % 12))
+        else {
+            return false;
+        };
+        let kind = kind.min(MIDI_SCALES.len() - 1);
+        self.midi_snapshot();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        let targets: Vec<usize> = self.midi_selection.iter().copied().collect();
+        for i in targets {
+            if let Some(note) = clip.midi_roll.notes.get_mut(i) {
+                let next = if semitones != 0 || kind == 0 {
+                    let amount = if semitones != 0 { semitones } else { 1 };
+                    (note.pitch as i32 + direction * amount).clamp(0, 127) as u8
+                } else {
+                    next_scale_pitch(note.pitch, direction, MIDI_SCALES[kind], root)
+                };
+                note.pitch = next;
+            }
+        }
+        if let Some(text) = midi_readout_text(clip, &self.midi_selection) {
+            self.midi_readout = text;
+        }
+        self.props_dirty = true;
+        true
+    }
+    /// Copy the selection and delete it (Ctrl+X).
+    pub fn midi_cut(&mut self) -> bool {
+        if self.midi_selection.is_empty() {
+            return false;
+        }
+        if !self.midi_copy() {
+            return false;
+        }
+        self.midi_roll_note_deleted(0);
         true
     }
 
@@ -2745,6 +2819,7 @@ impl App {
                     true
                 }
                 "c" | "C" => self.midi_copy(),
+                "x" | "X" => self.midi_cut(),
                 "v" | "V" => self.midi_paste(),
                 "d" | "D" => self.midi_duplicate(),
                 "z" | "Z" => {
@@ -2774,8 +2849,8 @@ impl App {
                     true
                 }
             }
-            "\u{F700}" => self.midi_nudge(0, if shift { 12 } else { 1 }),
-            "\u{F701}" => self.midi_nudge(0, if shift { -12 } else { -1 }),
+            "\u{F700}" => self.midi_pitch_move(1, if ctrl { 12 } else if shift { 1 } else { 0 }),
+            "\u{F701}" => self.midi_pitch_move(-1, if ctrl { 12 } else if shift { 1 } else { 0 }),
             "\u{F702}" => self.midi_nudge(-1, 0),
             "\u{F703}" => self.midi_nudge(1, 0),
             _ => false,

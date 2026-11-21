@@ -128,7 +128,9 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | Drag di grid (mode `Draw`) | Menggambar note dengan panjang mengikuti drag |
 | Klik keyboard di kiri | Audition pitch lewat output MIDI clip |
 | Klik kanan note | Hapus note |
-| Panah kiri/kanan, atas/bawah | Geser note satu grid / satu semitone (`Shift` = oktaf) |
+| Panah kiri/kanan | Geser note satu grid |
+| Panah atas/bawah | Naik/turun mengikuti skala; `Shift` = semitone, `Ctrl` = oktaf |
+| Tombol `Locate` | Gulir grid ke rentang nada yang dipakai clip |
 | Drag di grid kosong | Marquee selection |
 | `Shift` + klik note | Tambah atau lepas note dari selection |
 | Drag note | Geser seluruh note terpilih |
@@ -136,6 +138,7 @@ Tab **Piano Roll** aktif untuk clip terpilih. Shortcut berikut hanya berlaku saa
 | `Ctrl+A` / `Esc` | Pilih semua / lepas selection |
 | `Delete` | Hapus note terpilih |
 | `Ctrl+C` / `Ctrl+V` / `Ctrl+D` | Copy / paste di playhead / duplicate |
+| `Ctrl+X` | Cut selection |
 | `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` | Undo / redo |
 | Tombol `Fold` | Tampilkan hanya pitch yang dipakai clip |
 | Picker `Key` + `Scale` | Sorot baris yang masuk skala; baris di luar skala diredupkan |

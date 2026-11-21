@@ -232,6 +232,7 @@ component PianoRollEditor inherits Rectangle {
     in property <float> zoom-y: 1;
     in property <bool> expanded;
     in property <string> readout;
+    in property <int> locate-row;
     // One grid row and one beat, after zoom.
     property <length> row-h: 12px * root.zoom-y;
     property <length> beat-w: 32px * root.zoom-x;
@@ -408,6 +409,10 @@ component PianoRollEditor inherits Rectangle {
                     FlatButton { text: root.expanded ? "Shrink" : "Expand"; active: root.expanded; clicked => { root.expand-toggled(); } }
                     FlatButton { text: "Quantize"; clicked => { root.quantize(); } }
                     FlatButton { text: "Clear"; clicked => { root.clear(); } }
+                    FlatButton {
+                        text: "Locate";
+                        clicked => { grid-flick.content-y = max(0px, root.locate-row * root.row-h - grid-flick.height * 0.45); }
+                    }
                     Text {
                         text: root.mode == 0 ? "Draw: click adds, drag selects" : root.mode == 1 ? "Select: drag marquee" : "Erase: click a note";
                         color: Theme.text-faint;
@@ -936,6 +941,7 @@ export component PropertiesPanel inherits Rectangle {
     in property <float> midi-zoom-y;
     in property <bool> piano-expanded;
     in property <string> midi-readout;
+    in property <int> midi-locate-row;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -1534,6 +1540,7 @@ export component PropertiesPanel inherits Rectangle {
             zoom-y: root.midi-zoom-y;
             expanded: root.piano-expanded;
             readout: root.midi-readout;
+            locate-row: root.midi-locate-row;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
