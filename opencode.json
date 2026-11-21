@@ -4,9 +4,9 @@
     "servers": {
       "syntetika": {
         "type": "local",
-        "command": ["target/release/syntetika-mcp.exe"],
+        "command": ["cargo", "run", "--quiet", "-p", "openvj-app", "--bin", "syntetika-mcp"],
         "cwd": ".",
-        "timeout": 30000
+        "timeout": 120000
       }
     }
   }
