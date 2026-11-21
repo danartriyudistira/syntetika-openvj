@@ -9,6 +9,7 @@ mod link;
 mod mapping;
 mod media_browser;
 mod midi;
+mod midi_output;
 mod milk_pack;
 mod player;
 mod prefs;

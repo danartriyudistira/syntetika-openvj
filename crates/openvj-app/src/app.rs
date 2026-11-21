@@ -29,6 +29,7 @@ use slint::{ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffe
 use crate::browser::{self, Entry};
 use crate::link::Link;
 use crate::midi::{self, MidiPorts};
+use crate::midi_output::MidiOutputManager;
 use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
@@ -224,6 +225,7 @@ pub struct App {
     audio_status: String,
 
     midi: Option<MidiPorts>,
+    midi_output: MidiOutputManager,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
     midi_scan_at: f64,
@@ -401,6 +403,7 @@ impl App {
             audio_device: 0,
             audio_status: "Off. Turn it on to drive mapped parameters from the FFT bands.".into(),
             midi: None,
+            midi_output: MidiOutputManager::default(),
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
             midi_status: "Off".into(),

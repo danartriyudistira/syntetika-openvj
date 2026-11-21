@@ -17,6 +17,83 @@ pub const MILK_SENSITIVITY: usize = 0;
 
 pub const VIDEO_EXTENSIONS: &[&str] = &["mov", "mp4", "m4v", "mkv", "webm", "avi", "mxf", "mpg", "mpeg"];
 
+/// MIDI timing resolution used by clip piano rolls: 32 ticks per beat.
+pub const MIDI_TICKS_PER_BEAT: u32 = 32;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiNote {
+    pub pitch: u8,
+    pub start_tick: u32,
+    pub length_ticks: u32,
+    pub velocity: u8,
+}
+
+impl MidiNote {
+    pub fn end_tick(&self) -> u32 {
+        self.start_tick.saturating_add(self.length_ticks.max(1))
+    }
+}
+
+/// An optional MIDI pattern attached to a clip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiRoll {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub output_device: String,
+    #[serde(default)]
+    pub channel: u8,
+    #[serde(default = "default_midi_bars")]
+    pub bars: u32,
+    #[serde(default = "default_midi_grid")]
+    pub grid: u32,
+    #[serde(default)]
+    pub loop_start: u32,
+    #[serde(default = "default_midi_loop_end")]
+    pub loop_end: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<MidiNote>,
+}
+
+fn default_midi_bars() -> u32 { 1 }
+fn default_midi_grid() -> u32 { 16 }
+fn default_midi_loop_end() -> u32 { 128 }
+
+impl Default for MidiRoll {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            output_device: String::new(),
+            channel: 0,
+            bars: 1,
+            grid: 16,
+            loop_start: 0,
+            loop_end: default_midi_loop_end(),
+            notes: Vec::new(),
+        }
+    }
+}
+
+impl MidiRoll {
+    pub fn loop_end_for_bars(&self) -> u32 {
+        self.loop_end
+            .max(self.loop_start + 1)
+            .min(self.bars.max(1) * MIDI_TICKS_PER_BEAT * 4)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.enabled && self.output_device.is_empty() && self.notes.is_empty()
+    }
+
+    pub fn normalized_channel(&self) -> u8 {
+        self.channel.min(15)
+    }
+
+    pub fn normalized_notes(&self) -> impl Iterator<Item = &MidiNote> {
+        self.notes.iter().filter(|n| n.pitch <= 127 && n.length_ticks > 0 && n.velocity > 0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ClipId(pub u64);
 
@@ -284,6 +361,9 @@ pub struct Clip {
     /// How launching the clip behaves.
     #[serde(default, skip_serializing_if = "is_default")]
     pub trigger: TriggerStyle,
+    /// Optional MIDI pattern played alongside this clip.
+    #[serde(default, skip_serializing_if = "MidiRoll::is_empty")]
+    pub midi_roll: MidiRoll,
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
@@ -339,6 +419,7 @@ impl Clip {
             macros: Vec::new(),
             autopilot: Autopilot::Off,
             trigger: TriggerStyle::Normal,
+            midi_roll: MidiRoll::default(),
         }
     }
 
@@ -1532,6 +1613,15 @@ mod tests {
         assert!(back.layers[0].effects.is_empty());
         assert!(!back.clip(0, 0).unwrap().mods[0].is_active());
         assert_eq!(back.reactivity, 1.0);
+    }
+
+    #[test]
+    fn old_clips_get_an_empty_midi_roll() {
+        let mut json = serde_json::to_value(Clip::new(ClipId(1), generator(GeneratorKind::Plasma))).unwrap();
+        json.as_object_mut().unwrap().remove("midi_roll");
+        let clip: Clip = serde_json::from_value(json).expect("legacy clip loads");
+        assert!(!clip.midi_roll.enabled);
+        assert!(clip.midi_roll.notes.is_empty());
     }
 
     #[test]
