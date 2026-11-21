@@ -15,7 +15,7 @@ use openvj_core::milkdrop::milk_library;
 use openvj_core::{
     AudioSignal, Autopilot, BAND_COUNT, BeatClock, BlendMode, Clip, ClipId, ClipSource, ClockMessage, Composition,
     CrossfadeCurve, CrossfadeSide, DEFAULT_CLIP_SECS, Effect, EffectRef, LayerRef, MACRO_COUNT, MAX_REACTIVITY,
-    MOD_RATES, MidiBehaviour, MidiClock, MidiEffect, MidiMessage, MidiTarget, MidiRoll, ModInputs, ModSource, Modulation, Param,
+    MOD_RATES, MidiBehaviour, MidiClock, MidiEffect, MidiMessage, MidiTarget, ModInputs, ModSource, Modulation, Param,
     ParamRef, PlayMode, Playing, RouterInput, SYNC_BEATS, Span, TapTempo, TransitionStyle, TriggerStyle, MIDI_TICKS_PER_BEAT, apply_midi,
     library, move_effect,
 };
@@ -29,7 +29,7 @@ use slint::{ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffe
 use crate::browser::{self, Entry};
 use crate::link::Link;
 use crate::midi::{self, MidiPorts};
-use crate::midi_output::{MidiOutputManager, MidiOutputWorker};
+use crate::midi_output::{MidiOutputManager, MidiOutputWorker, MidiRollSnapshot};
 use crate::player::PlayerState;
 use crate::syphon_out::{self, SyphonOutput};
 use crate::{
@@ -111,14 +111,6 @@ enum Media {
 /// Runtime state for one clip's MIDI roll. `last_tick` is an absolute tick
 /// from the clip launch, so loop wrapping remains deterministic even when the
 /// UI frame rate is lower than the MIDI grid resolution.
-struct MidiRollPlayback {
-    started_at: f64,
-    started_beat: f64,
-    last_tick: f64,
-    channel: u8,
-    active: HashMap<u8, f64>,
-}
-
 /// The input or file last clicked in the browser, shown highlighted. Dragging it onto a
 /// slot places it.
 #[derive(Clone, PartialEq)]
@@ -237,7 +229,6 @@ pub struct App {
 
     midi: Option<MidiPorts>,
     midi_output: MidiOutputWorker,
-    midi_rolls: HashMap<ClipId, MidiRollPlayback>,
     midi_notes: Rc<VecModel<MidiNoteData>>,
     midi_devices: Vec<String>,
     midi_device_index: usize,
@@ -419,7 +410,6 @@ impl App {
             audio_status: "Off. Turn it on to drive mapped parameters from the FFT bands.".into(),
             midi: None,
             midi_output: MidiOutputWorker::new(),
-            midi_rolls: HashMap::new(),
             midi_notes: Rc::new(VecModel::default()),
             midi_devices: MidiOutputManager::port_names().unwrap_or_default(),
             midi_device_index: 0,
@@ -775,112 +765,25 @@ impl App {
         });
     }
 
-    /// Advances MIDI rolls from the composition beat clock. This first version
-    /// schedules on the frame loop; the note state is absolute in ticks so a
-    /// loop cannot lose its note-on when the visual frame rate jitters.
-    fn update_midi_rolls(&mut self, _now: f64, beat: f64) {
-        let jobs: Vec<(ClipId, Clip, Playing)> = self
+    /// Publishes the current active MIDI clips to the high-resolution worker.
+    /// No MIDI device I/O or note scheduling occurs on the render thread.
+    fn update_midi_rolls(&mut self, beat: f64) {
+        let rolls: Vec<MidiRollSnapshot> = self
             .comp
             .layers
             .iter()
             .filter_map(|layer| {
                 let playing = layer.active?;
                 let clip = layer.clip_by_id(playing.clip_id)?.clone();
-                Some((clip.id, clip, playing))
+                Some(MidiRollSnapshot {
+                    id: clip.id,
+                    roll: clip.midi_roll.clone(),
+                    started_beat: playing.started_beat,
+                    speed: clip.speed,
+                })
             })
             .collect();
-        let live: HashSet<ClipId> = jobs.iter().map(|(id, _, _)| *id).collect();
-
-        let mut stale_notes = Vec::new();
-        self.midi_rolls.retain(|id, state| {
-            if live.contains(id) {
-                true
-            } else {
-                stale_notes.extend(state.active.keys().copied().map(|pitch| (state.channel, pitch)));
-                false
-            }
-        });
-        for (channel, pitch) in stale_notes {
-            self.midi_output.note_off(channel, pitch);
-        }
-
-        if jobs.is_empty() {
-            if !self.midi_rolls.is_empty() {
-                self.midi_output.all_notes_off();
-                self.midi_rolls.clear();
-            }
-            return;
-        }
-
-        for (id, clip, playing) in jobs {
-            let roll: &MidiRoll = &clip.midi_roll;
-            if !roll.enabled || roll.notes.is_empty() || roll.output_device.is_empty() {
-                continue;
-            }
-
-            self.midi_output.open(roll.output_device.clone());
-
-            let loop_start = roll.loop_start as f64;
-            let loop_end = roll.loop_end_for_bars() as f64;
-            let loop_len = (loop_end - loop_start).max(1.0);
-            let current = ((beat - playing.started_beat).max(0.0) * clip.speed.max(0.0) as f64)
-                * MIDI_TICKS_PER_BEAT as f64;
-            let channel = roll.normalized_channel();
-            let state = self.midi_rolls.entry(id).or_insert_with(|| MidiRollPlayback {
-                started_at: playing.started_at,
-                started_beat: playing.started_beat,
-                last_tick: current - 0.001,
-                channel,
-                active: HashMap::new(),
-            });
-
-            if state.started_at != playing.started_at || state.started_beat != playing.started_beat || state.channel != channel {
-                for pitch in state.active.keys().copied().collect::<Vec<_>>() {
-                    self.midi_output.note_off(state.channel, pitch);
-                }
-                state.active.clear();
-                state.started_at = playing.started_at;
-                state.started_beat = playing.started_beat;
-                state.last_tick = current - 0.001;
-                state.channel = channel;
-            }
-
-            if current < state.last_tick {
-                state.active.clear();
-                state.last_tick = current - 0.001;
-            }
-
-            let previous = state.last_tick;
-            let first_cycle = (previous / loop_len).floor() as i64;
-            let last_cycle = (current / loop_len).floor() as i64;
-
-            for note in roll.normalized_notes() {
-                let note_start = note.start_tick as f64;
-                if note_start < loop_start || note_start >= loop_end { continue; }
-                let relative = note_start - loop_start;
-                for cycle in first_cycle..=last_cycle {
-                    let event = cycle as f64 * loop_len + relative;
-                    if event > previous && event <= current {
-                        if state.active.remove(&note.pitch).is_some() {
-                            self.midi_output.note_off(channel, note.pitch);
-                        }
-                        self.midi_output.note_on(channel, note.pitch, note.velocity);
-                        state.active.insert(note.pitch, event + note.length_ticks.max(1) as f64);
-                    }
-                }
-            }
-
-            let finished: Vec<u8> = state
-                .active
-                .iter()
-                .filter_map(|(pitch, end)| (*end <= current).then_some(*pitch))
-                .collect();
-            for pitch in finished {
-                state.active.remove(&pitch);
-                self.midi_output.note_off(channel, pitch);
-            }
-            state.last_tick = current;
-        }
+        self.midi_output.sync(rolls, beat, self.comp.bpm);
     }
 
     fn poll_loads(&mut self) {
@@ -1138,7 +1041,7 @@ impl App {
         self.update_videos(now, beat);
         self.update_live(now);
         self.update_midi(now);
-        self.update_midi_rolls(now, beat);
+        self.update_midi_rolls(beat);
         self.inputs = self.update_audio(beat, dt);
         let inputs = self.inputs;
         self.player.listen(&inputs, self.comp.bpm, dt, now, beat);
