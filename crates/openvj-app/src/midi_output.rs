@@ -199,10 +199,20 @@ fn process_state(states: &mut HashMap<ClipId, RollState>, outputs: &mut HashMap<
     if let Err(error) = output.open(&device) { eprintln!("Syntetika MIDI output: {error}"); return; }
 
     let current = midi_tick(beat, state.started_beat, state.speed);
+    let events = collect_events(state, current);
+    for event in events {
+        match event { Event::On(ch, p, v) => output.note_on(ch, p, v), Event::Off(ch, p) => output.note_off(ch, p) }
+    }
+}
+
+fn collect_events(state: &mut RollState, current: f64) -> Vec<Event> {
     let loop_start = state.roll.loop_start as f64;
     let loop_end = state.roll.loop_end_for_bars() as f64;
     let loop_len = (loop_end - loop_start).max(1.0);
-    if current < state.last_tick { state.active.clear(); state.last_tick = current - 0.001; }
+    if current < state.last_tick {
+        state.active.clear();
+        state.last_tick = current - 0.001;
+    }
     let previous = state.last_tick;
     let first_cycle = (previous / loop_len).floor() as i64;
     let last_cycle = (current / loop_len).floor() as i64;
@@ -222,9 +232,56 @@ fn process_state(states: &mut HashMap<ClipId, RollState>, outputs: &mut HashMap<
         }
     }
     let finished: Vec<_> = state.active.iter().filter_map(|(pitch, end)| (*end <= current).then_some(*pitch)).collect();
-    for pitch in finished { state.active.remove(&pitch); events.push(Event::Off(state.channel, pitch)); }
+    for pitch in finished {
+        state.active.remove(&pitch);
+        events.push(Event::Off(state.channel, pitch));
+    }
     state.last_tick = current;
-    for event in events {
-        match event { Event::On(ch, p, v) => output.note_on(ch, p, v), Event::Off(ch, p) => output.note_off(ch, p) }
+    events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openvj_core::{MidiNote, MidiRoll};
+
+    fn state(notes: Vec<MidiNote>, last_tick: f64) -> RollState {
+        RollState {
+            roll: MidiRoll { enabled: true, notes, ..MidiRoll::default() },
+            device: String::new(),
+            channel: 2,
+            started_beat: 0.0,
+            speed: 1.0,
+            last_tick,
+            active: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn short_note_emits_note_on_at_tick_boundary() {
+        let mut state = state(vec![MidiNote { pitch: 60, start_tick: 0, length_ticks: 2, velocity: 100 }], -0.001);
+        assert!(matches!(collect_events(&mut state, 0.01).as_slice(), [Event::On(2, 60, 100)]));
+    }
+
+    #[test]
+    fn note_off_is_emitted_when_length_expires() {
+        let mut state = state(vec![MidiNote { pitch: 60, start_tick: 0, length_ticks: 2, velocity: 100 }], -0.001);
+        let _ = collect_events(&mut state, 0.01);
+        assert!(matches!(collect_events(&mut state, 2.0).as_slice(), [Event::Off(2, 60)]));
+    }
+
+    #[test]
+    fn loop_boundary_emits_the_next_note() {
+        let mut state = state(vec![MidiNote { pitch: 64, start_tick: 0, length_ticks: 4, velocity: 90 }], 127.9);
+        assert!(matches!(collect_events(&mut state, 128.1).as_slice(), [Event::On(2, 64, 90)]));
+    }
+
+    #[test]
+    fn rewinding_resets_active_notes_without_duplicate_state() {
+        let mut state = state(vec![MidiNote { pitch: 67, start_tick: 16, length_ticks: 4, velocity: 80 }], 20.0);
+        state.active.insert(67, 24.0);
+        let events = collect_events(&mut state, 4.0);
+        assert!(events.is_empty());
+        assert!(state.active.is_empty());
     }
 }
