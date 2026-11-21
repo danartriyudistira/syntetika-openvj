@@ -1430,6 +1430,8 @@ export component MainWindow inherits Window {
     in property <int> midi-roll-grid;
     in property <float> midi-loop-start;
     in property <float> midi-loop-end;
+    in property <float> midi-playhead;
+    in property <bool> midi-playing;
 
     callback cell-clicked(int, int);
     callback cell-pressed(int, int);
@@ -1513,6 +1515,9 @@ export component MainWindow inherits Window {
     callback midi-roll-note-drag-begin(int);
     callback midi-roll-note-drag-end();
     callback midi-roll-marquee-selected(float, float, int, int, bool);
+    callback midi-roll-velocity-begin(float);
+    callback midi-roll-velocity-set(float, int);
+    callback midi-roll-note-resize-begin(int);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1524,6 +1529,8 @@ export component MainWindow inherits Window {
 
     // Returns true if the key was handled.
     callback key(string) -> bool;
+    // Piano Roll shortcuts; text, Ctrl/Cmd, Shift. Returns true if handled.
+    callback midi-key(string, bool, bool) -> bool;
 
     public function focus-keys() {
         keys.focus();
@@ -1659,6 +1666,10 @@ export component MainWindow inherits Window {
             }
             if (MidiLearn.on && e.text == Key.Escape) {
                 MidiLearn.toggle();
+                return accept;
+            }
+            if (root.props-tab == 4
+                && root.midi-key(e.text, e.modifiers.control || e.modifiers.meta, e.modifiers.shift)) {
                 return accept;
             }
             if (root.key(e.text)) {
@@ -1972,6 +1983,8 @@ export component MainWindow inherits Window {
                      midi-roll-grid: root.midi-roll-grid;
                      midi-loop-start: root.midi-loop-start;
                      midi-loop-end: root.midi-loop-end;
+                     midi-playhead: root.midi-playhead;
+                     midi-playing: root.midi-playing;
                     param-set(s, o, i, v) => { root.param-set(s, o, i, v); }
                     param-mod(s, o, i, m) => { root.param-mod(s, o, i, m); }
                     param-mod-amount(s, o, i, a) => { root.param-mod-amount(s, o, i, a); }
@@ -2013,6 +2026,9 @@ export component MainWindow inherits Window {
                      midi-roll-note-drag-begin(i) => { root.midi-roll-note-drag-begin(i); }
                      midi-roll-note-drag-end => { root.midi-roll-note-drag-end(); }
                      midi-roll-marquee-selected(b1, b2, p1, p2, add) => { root.midi-roll-marquee-selected(b1, b2, p1, p2, add); }
+                     midi-roll-velocity-begin(b) => { root.midi-roll-velocity-begin(b); }
+                     midi-roll-velocity-set(b, v) => { root.midi-roll-velocity-set(b, v); }
+                     midi-roll-note-resize-begin(i) => { root.midi-roll-note-resize-begin(i); }
                     layer-side-picked(i) => { root.layer-side-picked(i); }
                     layer-group-picked(i) => { root.layer-group-picked(i); }
                     group-renamed(t) => { root.group-renamed(t); }

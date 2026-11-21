@@ -220,6 +220,8 @@ component PianoRollEditor inherits Rectangle {
     in property <int> grid;
     in property <float> loop-start;
     in property <float> loop-end;
+    in property <float> playhead;
+    in property <bool> playing;
     callback enabled-toggled();
     callback device-picked(int);
     callback channel-picked(int);
@@ -236,10 +238,17 @@ component PianoRollEditor inherits Rectangle {
     callback note-drag-end();
     /// beat-lo, beat-hi, pitch-lo, pitch-hi, additive (Shift held).
     callback marquee-selected(float, float, int, int, bool);
+    callback velocity-begin(float);
+    callback velocity-set(float, int);
+    callback note-resize-begin(int);
     background: Theme.track;
     border-width: 1px;
     border-color: Theme.separator;
     border-radius: Theme.radius;
+
+    pure function velocity-at(y: length, h: length) -> int {
+        return round(clamp((1.0 - y / h) * 127.0, 1.0, 127.0));
+    }
 
     VerticalLayout {
         padding: 8px;
@@ -276,11 +285,11 @@ component PianoRollEditor inherits Rectangle {
             FlatButton { text: "Full"; clicked => { root.loop-changed(0, root.bars * 4); } }
         }
         Text {
-            text: "Click the grid to add a note, drag on empty grid to marquee-select, double-click a note to remove it. 32 ticks per beat.";
+            text: "Click = add · drag empty = marquee · Ctrl+A all · Del remove · Ctrl+C/V/D · Ctrl+Z/Y undo/redo";
             color: Theme.text-faint;
             font-size: 10px;
         }
-        Flickable {
+        grid-flick := Flickable {
             vertical-stretch: 1;
             content-height: 1280px;
             Rectangle {
@@ -381,6 +390,7 @@ component PianoRollEditor inherits Rectangle {
                             pointer-event(e) => {
                                 if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
                                     origin = note.length;
+                                    root.note-resize-begin(note.index);
                                 }
                             }
                             moved => {
@@ -399,6 +409,48 @@ component PianoRollEditor inherits Rectangle {
                     background: Theme.selection.with-alpha(0.20);
                     border-width: 1px;
                     border-color: Theme.selection;
+                }
+                Rectangle {
+                    visible: root.playing;
+                    x: root.playhead * 32px;
+                    width: 1px;
+                    height: parent.height;
+                    background: Theme.playing;
+                }
+            }
+        }
+        // Velocity lane: bars mirror each note's velocity. Drag to edit the
+        // note nearest the pointer (selected notes take priority).
+        Rectangle {
+            height: 54px;
+            clip: true;
+            background: Theme.bg;
+            border-width: 1px;
+            border-color: Theme.separator;
+            Rectangle {
+                x: -grid-flick.content-x;
+                width: max(parent.width, root.bars * 128px + 80px);
+                height: parent.height;
+                for note in root.notes: Rectangle {
+                    x: note.start * 32px;
+                    width: 5px;
+                    y: (1.0 - note.velocity / 127.0) * (parent.height - 4px);
+                    height: max(2px, note.velocity / 127.0 * (parent.height - 4px));
+                    background: note.selected ? Theme.selection : Theme.accent;
+                    border-radius: 1px;
+                }
+                lane-ta := TouchArea {
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                            root.velocity-begin(self.mouse-x / 32px);
+                            root.velocity-set(self.mouse-x / 32px, root.velocity-at(self.mouse-y, self.height));
+                        } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                            root.note-drag-end();
+                        }
+                    }
+                    moved => {
+                        root.velocity-set(self.mouse-x / 32px, root.velocity-at(self.mouse-y, self.height));
+                    }
                 }
             }
         }
@@ -484,6 +536,8 @@ export component PropertiesPanel inherits Rectangle {
     in property <int> midi-roll-grid;
     in property <float> midi-loop-start;
     in property <float> midi-loop-end;
+    in property <float> midi-playhead;
+    in property <bool> midi-playing;
 
     callback param-set(int, int, int, float);
     callback param-mod(int, int, int, int);
@@ -527,6 +581,9 @@ export component PropertiesPanel inherits Rectangle {
     callback midi-roll-note-drag-begin(int);
     callback midi-roll-note-drag-end();
     callback midi-roll-marquee-selected(float, float, int, int, bool);
+    callback midi-roll-velocity-begin(float);
+    callback midi-roll-velocity-set(float, int);
+    callback midi-roll-note-resize-begin(int);
     callback layer-side-picked(int);
     callback layer-group-picked(int);
     callback group-renamed(string);
@@ -1056,6 +1113,8 @@ export component PropertiesPanel inherits Rectangle {
             grid: root.midi-roll-grid;
             loop-start: root.midi-loop-start;
             loop-end: root.midi-loop-end;
+            playhead: root.midi-playhead;
+            playing: root.midi-playing;
             enabled-toggled => { root.midi-roll-enabled-toggled(); }
             device-picked(i) => { root.midi-roll-device-picked(i); }
             channel-picked(i) => { root.midi-roll-channel-picked(i); }
@@ -1071,6 +1130,9 @@ export component PropertiesPanel inherits Rectangle {
             note-drag-begin(i) => { root.midi-roll-note-drag-begin(i); }
             note-drag-end => { root.midi-roll-note-drag-end(); }
             marquee-selected(b1, b2, p1, p2, add) => { root.midi-roll-marquee-selected(b1, b2, p1, p2, add); }
+            velocity-begin(b) => { root.midi-roll-velocity-begin(b); }
+            velocity-set(b, v) => { root.midi-roll-velocity-set(b, v); }
+            note-resize-begin(i) => { root.midi-roll-note-resize-begin(i); }
         }
     }
 }

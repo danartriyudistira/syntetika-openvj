@@ -237,6 +237,11 @@ pub struct App {
     /// Note positions captured when a drag gesture starts, so every selected note
     /// moves by the same delta without accumulating rounding drift.
     midi_drag: Option<HashMap<usize, (u32, u8)>>,
+    midi_undo: Vec<Vec<openvj_core::MidiNote>>,
+    midi_redo: Vec<Vec<openvj_core::MidiNote>>,
+    midi_clipboard: Vec<openvj_core::MidiNote>,
+    midi_playhead: f32,
+    midi_playing: bool,
     control_queue: Option<ControlQueue>,
     /// Port names when the ports were last opened, to notice controllers being plugged in.
     midi_port_list: Vec<String>,
@@ -421,6 +426,11 @@ impl App {
             midi_device_index: 0,
             midi_selection: HashSet::new(),
             midi_drag: None,
+            midi_undo: Vec::new(),
+            midi_redo: Vec::new(),
+            midi_clipboard: Vec::new(),
+            midi_playhead: 0.0,
+            midi_playing: false,
             control_queue: None,
             midi_port_list: Vec::new(),
             midi_scan_at: 0.0,
@@ -795,6 +805,23 @@ impl App {
         self.midi_output.sync(rolls, beat, self.comp.bpm);
     }
 
+    /// Where the playhead sits inside the selected clip's roll, in beats.
+    fn update_midi_playhead(&mut self, beat: f64) {
+        self.midi_playing = false;
+        self.midi_playhead = 0.0;
+        let Some((layer_index, column)) = self.selected else { return };
+        let Some(layer) = self.comp.layers.get(layer_index) else { return };
+        let Some(clip) = layer.clips.get(column).and_then(|c| c.as_ref()) else { return };
+        let Some(playing) = layer.active.filter(|p| p.clip_id == clip.id) else { return };
+        let loop_start = clip.midi_roll.loop_start as f64;
+        let loop_end = clip.midi_roll.loop_end_for_bars() as f64;
+        let len = (loop_end - loop_start).max(1.0);
+        let speed = clip.speed.max(0.0) as f64;
+        let ticks = ((beat - playing.started_beat).max(0.0) * speed * MIDI_TICKS_PER_BEAT as f64) % len;
+        self.midi_playhead = ((loop_start + ticks) / MIDI_TICKS_PER_BEAT as f64) as f32;
+        self.midi_playing = true;
+    }
+
     fn poll_loads(&mut self) {
         while let Ok((id, result)) = self.load_rx.try_recv() {
             if !self.media.contains_key(&id) {
@@ -1052,6 +1079,9 @@ impl App {
         self.update_live(now);
         self.update_midi(now);
         self.update_midi_rolls(beat);
+        self.update_midi_playhead(beat);
+        ui.set_midi_playhead(self.midi_playhead);
+        ui.set_midi_playing(self.midi_playing);
         self.inputs = self.update_audio(beat, dt);
         let inputs = self.inputs;
         self.player.listen(&inputs, self.comp.bpm, dt, now, beat);
@@ -1783,6 +1813,7 @@ impl App {
 
     pub fn cell_clicked(&mut self, layer: usize, col: usize) {
         self.stop_audition();
+        self.retarget_midi_clip(layer, col);
         let now = self.now();
         // Piano clips launched on the press already (cell_pressed).
         if self.comp.clip(layer, col).is_some_and(|c| c.trigger != TriggerStyle::Piano) {
@@ -1817,6 +1848,7 @@ impl App {
 
     pub fn cell_right_clicked(&mut self, layer: usize, col: usize) {
         self.stop_audition();
+        self.retarget_midi_clip(layer, col);
         self.tab_request = Some(2);
         self.selected = Some((layer, col));
         self.selected_layer = layer;
@@ -2031,6 +2063,8 @@ impl App {
                     "selected_clip": self.selected,
                     "bpm": self.comp.bpm,
                     "midi_devices": self.midi_devices,
+                    "midi_playhead": self.midi_playhead,
+                    "midi_playing": self.midi_playing,
                 }),
                 "performance" => serde_json::json!({
                     "ok": true,
@@ -2120,6 +2154,33 @@ impl App {
                     self.midi_roll_marquee_selected(beat_lo, beat_hi, pitch_lo, pitch_hi, additive);
                     serde_json::json!({"ok": true, "selected": self.midi_selection.len()})
                 }
+                "midi_edit" => {
+                    let op = request.args.get("op").and_then(|v| v.as_str()).unwrap_or_default();
+                    match op {
+                        "select_all" => {
+                            self.midi_select_all();
+                            serde_json::json!({"ok": true, "selected": self.midi_selection.len()})
+                        }
+                        "clear_selection" => {
+                            self.midi_clear_selection();
+                            serde_json::json!({"ok": true, "selected": 0})
+                        }
+                        "undo" => serde_json::json!({"ok": self.midi_undo()}),
+                        "redo" => serde_json::json!({"ok": self.midi_redo()}),
+                        "copy" => serde_json::json!({"ok": self.midi_copy()}),
+                        "paste" => serde_json::json!({"ok": self.midi_paste()}),
+                        "duplicate" => serde_json::json!({"ok": self.midi_duplicate()}),
+                        "velocity" => {
+                            let beat = request.args.get("beat").and_then(|v| v.as_f64()).unwrap_or(-1.0) as f32;
+                            let velocity = request.args.get("velocity").and_then(|v| v.as_i64()).unwrap_or(100) as i32;
+                            let beat = if beat < 0.0 { self.midi_playhead } else { beat };
+                            self.midi_roll_velocity_begin(beat);
+                            self.midi_roll_velocity_set(beat, velocity);
+                            serde_json::json!({"ok": true, "beat": beat, "velocity": velocity})
+                        }
+                        _ => serde_json::json!({"ok": false, "error": "unknown midi edit op"}),
+                    }
+                }
                 "panic_midi" => {
                     self.midi_output.all_notes_off();
                     serde_json::json!({"ok": true})
@@ -2160,16 +2221,257 @@ impl App {
         }
     }
 
+    /// Drops per-clip edit state when the Piano Roll moves to another clip.
+    fn retarget_midi_clip(&mut self, layer: usize, col: usize) {
+        if self.selected != Some((layer, col)) {
+            self.midi_undo.clear();
+            self.midi_redo.clear();
+            self.midi_selection.clear();
+            self.midi_drag = None;
+        }
+    }
+
+    fn midi_snapshot(&mut self) {
+        let notes = match self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
+            Some(clip) => clip.midi_roll.notes.clone(),
+            None => return,
+        };
+        self.midi_undo.push(notes);
+        if self.midi_undo.len() > 64 {
+            self.midi_undo.remove(0);
+        }
+        self.midi_redo.clear();
+    }
+
+    fn midi_restore(&mut self, notes: Vec<openvj_core::MidiNote>) {
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return };
+        clip.midi_roll.notes = notes;
+        clip.midi_roll.enabled = true;
+        self.midi_selection.clear();
+        self.midi_drag = None;
+        self.props_dirty = true;
+    }
+
+    fn midi_notes_now(&mut self) -> Option<Vec<openvj_core::MidiNote>> {
+        self.selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| clip.midi_roll.notes.clone())
+    }
+
+    pub fn midi_undo(&mut self) -> bool {
+        let Some(notes) = self.midi_undo.pop() else { return false };
+        let Some(current) = self.midi_notes_now() else {
+            self.midi_undo.push(notes);
+            return false;
+        };
+        self.midi_redo.push(current);
+        self.midi_restore(notes);
+        true
+    }
+
+    pub fn midi_redo(&mut self) -> bool {
+        let Some(notes) = self.midi_redo.pop() else { return false };
+        let Some(current) = self.midi_notes_now() else {
+            self.midi_redo.push(notes);
+            return false;
+        };
+        self.midi_undo.push(current);
+        self.midi_restore(notes);
+        true
+    }
+
+    pub fn midi_select_all(&mut self) {
+        let len = self.midi_notes_now().map_or(0, |n| n.len());
+        self.midi_selection = (0..len).collect();
+        self.props_dirty = true;
+    }
+
+    pub fn midi_clear_selection(&mut self) {
+        self.midi_selection.clear();
+        self.props_dirty = true;
+    }
+
+    fn midi_selected_notes(&mut self) -> Option<Vec<openvj_core::MidiNote>> {
+        let notes = self.midi_notes_now()?;
+        if self.midi_selection.is_empty() {
+            return Some(notes);
+        }
+        Some(
+            notes
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| self.midi_selection.contains(i))
+                .map(|(_, note)| note)
+                .collect(),
+        )
+    }
+
+    pub fn midi_copy(&mut self) -> bool {
+        let Some(picked) = self.midi_selected_notes() else { return false };
+        if picked.is_empty() {
+            return false;
+        }
+        self.midi_clipboard = picked;
+        true
+    }
+
+    pub fn midi_paste(&mut self) -> bool {
+        if self.midi_clipboard.is_empty() {
+            return false;
+        }
+        self.midi_snapshot();
+        let grid = (MIDI_TICKS_PER_BEAT / 4).max(1) as i64;
+        let base = self.midi_clipboard.iter().map(|n| n.start_tick).min().unwrap_or(0);
+        let raw = (self.midi_playhead.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let target = (raw + grid / 2) / grid * grid;
+        let offset = target - base as i64;
+        let notes = self.midi_clipboard.clone();
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
+        let before = clip.midi_roll.notes.len();
+        for mut note in notes {
+            let start = note.start_tick as i64 + offset;
+            let limit = (max - note.length_ticks.max(1) as i64).max(0);
+            if start < 0 || start > limit {
+                continue; // Outside this clip's bars.
+            }
+            note.start_tick = start as u32;
+            clip.midi_roll.notes.push(note);
+        }
+        if clip.midi_roll.notes.len() == before {
+            return false;
+        }
+        clip.midi_roll.enabled = true;
+        self.midi_selection = (before..clip.midi_roll.notes.len()).collect();
+        self.props_dirty = true;
+        true
+    }
+
+    pub fn midi_duplicate(&mut self) -> bool {
+        let Some(picked) = self.midi_selected_notes() else { return false };
+        if picked.is_empty() {
+            return false;
+        }
+        self.midi_snapshot();
+        let grid = (MIDI_TICKS_PER_BEAT / 4).max(1) as i64;
+        let start_min = picked.iter().map(|n| n.start_tick).min().unwrap_or(0);
+        let end_max = picked.iter().map(|n| n.start_tick + n.length_ticks).max().unwrap_or(start_min);
+        let raw_span = end_max.saturating_sub(start_min).max(1) as i64;
+        let span = (raw_span + grid - 1) / grid * grid;
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return false };
+        let max = (clip.midi_roll.bars.max(1) * 4 * MIDI_TICKS_PER_BEAT) as i64;
+        let before = clip.midi_roll.notes.len();
+        for mut note in picked {
+            let start = note.start_tick as i64 + span;
+            let limit = (max - note.length_ticks.max(1) as i64).max(0);
+            if start > limit {
+                continue; // Outside this clip's bars.
+            }
+            note.start_tick = start as u32;
+            clip.midi_roll.notes.push(note);
+        }
+        if clip.midi_roll.notes.len() == before {
+            return false;
+        }
+        clip.midi_roll.enabled = true;
+        self.midi_selection = (before..clip.midi_roll.notes.len()).collect();
+        self.props_dirty = true;
+        true
+    }
+
+    pub fn midi_roll_velocity_begin(&mut self, _beat: f32) {
+        self.midi_snapshot();
+    }
+
+    /// Sets velocity of the note nearest `beat`, preferring selected notes.
+    pub fn midi_roll_velocity_set(&mut self, beat: f32, velocity: i32) {
+        let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) else { return };
+        let target = (beat.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as i64;
+        let wanted = velocity.clamp(1, 127) as u8;
+        let mut best: Option<(i64, usize)> = None;
+        for (i, note) in clip.midi_roll.notes.iter().enumerate() {
+            if !self.midi_selection.is_empty() && !self.midi_selection.contains(&i) {
+                continue;
+            }
+            let dist = (note.start_tick as i64 - target).abs();
+            if best.is_none_or(|(d, _)| dist < d) {
+                best = Some((dist, i));
+            }
+        }
+        let Some((dist, index)) = best else { return };
+        if dist > MIDI_TICKS_PER_BEAT as i64 {
+            return;
+        }
+        if let Some(note) = clip.midi_roll.notes.get_mut(index) {
+            if note.velocity != wanted {
+                note.velocity = wanted;
+                self.props_dirty = true;
+            }
+        }
+    }
+
+    pub fn midi_roll_note_resize_begin(&mut self, _index: usize) {
+        self.midi_snapshot();
+    }
+
+    pub fn midi_key(&mut self, text: &str, ctrl: bool, shift: bool) -> bool {
+        if ctrl {
+            return match text {
+                "a" | "A" => {
+                    self.midi_select_all();
+                    true
+                }
+                "c" | "C" => self.midi_copy(),
+                "v" | "V" => self.midi_paste(),
+                "d" | "D" => self.midi_duplicate(),
+                "z" | "Z" => {
+                    if shift {
+                        self.midi_redo()
+                    } else {
+                        self.midi_undo()
+                    }
+                }
+                "y" | "Y" => self.midi_redo(),
+                _ => false,
+            };
+        }
+        match text {
+            "\u{7f}" | "\u{8}" => {
+                if !self.midi_selection.is_empty() {
+                    self.midi_roll_note_deleted(0);
+                }
+                // Consumed so Delete never removes the clip from this tab.
+                true
+            }
+            "\u{1b}" => {
+                if self.midi_selection.is_empty() {
+                    false
+                } else {
+                    self.midi_clear_selection();
+                    true
+                }
+            }
+            _ => false,
+        }
+    }
+
     pub fn midi_roll_note_added(&mut self, pitch: i32, start: f32) {
         self.midi_roll_note_added_vel(pitch, start, 100);
     }
 
     pub fn midi_roll_note_added_vel(&mut self, pitch: i32, start: f32, velocity: i32) {
+        let Some(max_tick) = self
+            .selected
+            .and_then(|(l, c)| self.comp.clip_mut(l, c))
+            .map(|clip| clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4)
+        else {
+            return;
+        };
+        let start_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
+        if start_tick >= max_tick { return; }
+        self.midi_snapshot();
+        self.midi_selection.clear();
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
-            let max_tick = clip.midi_roll.bars.max(1) * MIDI_TICKS_PER_BEAT * 4;
-            let start_tick = (start.max(0.0) * MIDI_TICKS_PER_BEAT as f32).round() as u32;
-            if start_tick >= max_tick { return; }
-            self.midi_selection.clear();
             clip.midi_roll.notes.push(openvj_core::MidiNote {
                 pitch: pitch.clamp(0, 127) as u8,
                 start_tick,
@@ -2182,6 +2484,7 @@ impl App {
     }
 
     pub fn midi_roll_note_deleted(&mut self, index: usize) {
+        self.midi_snapshot();
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             let mut remove = self.midi_selection.clone();
             if remove.is_empty() { remove.insert(index); }
@@ -2207,6 +2510,7 @@ impl App {
     }
 
     pub fn midi_roll_cleared(&mut self) {
+        self.midi_snapshot();
         if let Some(clip) = self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             clip.midi_roll.notes.clear();
             clip.midi_roll.enabled = false;
@@ -2245,6 +2549,7 @@ impl App {
     }
 
     pub fn midi_roll_note_drag_begin(&mut self, index: usize) {
+        self.midi_snapshot();
         let snapshot = match self.selected.and_then(|(l, c)| self.comp.clip_mut(l, c)) {
             Some(clip) => {
                 let len = clip.midi_roll.notes.len();

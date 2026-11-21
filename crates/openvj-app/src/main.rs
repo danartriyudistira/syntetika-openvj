@@ -500,6 +500,9 @@ fn main() -> Result<()> {
     on!(on_midi_roll_note_drag_begin, |a, i: i32| a.midi_roll_note_drag_begin(i.max(0) as usize));
     on!(on_midi_roll_note_drag_end, |a| a.midi_roll_note_drag_end());
     on!(on_midi_roll_marquee_selected, |a, b1: f32, b2: f32, p1: i32, p2: i32, add: bool| a.midi_roll_marquee_selected(b1, b2, p1, p2, add));
+    on!(on_midi_roll_note_resize_begin, |a, i: i32| a.midi_roll_note_resize_begin(i.max(0) as usize));
+    on!(on_midi_roll_velocity_begin, |a, b: f32| a.midi_roll_velocity_begin(b));
+    on!(on_midi_roll_velocity_set, |a, b: f32, v: i32| a.midi_roll_velocity_set(b, v));
     on!(on_layer_side_picked, |a, i: i32| a.layer_side(i.max(0) as usize));
     on!(on_layer_group_picked, |a, i: i32| a.layer_group(i.max(0) as usize));
     on!(on_group_renamed, |a, t: slint::SharedString| a.group_renamed(&t));
@@ -514,6 +517,15 @@ fn main() -> Result<()> {
         ui.on_key(move |text| {
             let mut handled = false;
             with_app(&app, &w, &o, |a| handled = a.key(&text));
+            handled
+        });
+    }
+
+    {
+        let (app, w, o) = (app.clone(), w.clone(), o.clone());
+        ui.on_midi_key(move |text, ctrl, shift| {
+            let mut handled = false;
+            with_app(&app, &w, &o, |a| handled = a.midi_key(&text, ctrl, shift));
             handled
         });
     }
