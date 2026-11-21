@@ -34,6 +34,7 @@ fn tools() -> Vec<Value> {
         json!({"name":"marquee_select","description":"Select notes overlapping a beat/pitch rectangle.","inputSchema":{"type":"object","properties":{"beat_lo":{"type":"number"},"beat_hi":{"type":"number"},"pitch_lo":{"type":"integer"},"pitch_hi":{"type":"integer"},"additive":{"type":"boolean"}},"required":["beat_lo","beat_hi","pitch_lo","pitch_hi"]}}),
         json!({"name":"midi_edit","description":"Piano Roll edit ops: select_all, clear_selection, undo, redo, copy, paste, duplicate, velocity.","inputSchema":{"type":"object","properties":{"op":{"type":"string","enum":["select_all","clear_selection","undo","redo","copy","paste","duplicate","velocity"]},"beat":{"type":"number"},"velocity":{"type":"integer","minimum":1,"maximum":127}},"required":["op"]}}),
         json!({"name":"panic_midi","description":"Send All Notes Off to MIDI outputs.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"ui_tab","description":"Open a properties panel tab (0-4; 4 is Piano Roll).","inputSchema":{"type":"object","properties":{"tab":{"type":"integer","minimum":0,"maximum":4}},"required":["tab"]}}),
     ]
 }
 
@@ -53,6 +54,7 @@ fn call_tool(params: &Value) -> Value {
         "marquee_select" => "marquee_select",
         "midi_edit" => "midi_edit",
         "panic_midi" => "panic_midi",
+        "ui_tab" => "ui_tab",
         _ => return json!({"error":{"code":-32602,"message":"unknown tool"}}),
     };
     match post(json!({"action":action,"args":args})) {

@@ -2185,6 +2185,13 @@ impl App {
                     self.midi_output.all_notes_off();
                     serde_json::json!({"ok": true})
                 }
+                "ui_tab" => {
+                    // Drives the properties panel tab, for automated smoke tests.
+                    let tab = request.args.get("tab").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                    self.tab_request = Some(tab);
+                    self.props_dirty = true;
+                    serde_json::json!({"ok": true, "tab": tab})
+                }
                 _ => serde_json::json!({"ok": false, "error": "unknown control action"}),
             };
             let _ = request.reply.send(response);
